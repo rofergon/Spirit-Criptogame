@@ -15,7 +15,7 @@ export type ResourceType = "food" | "stone" | "waterSpring";
 export type StructureType = "village" | "granary" | "house" | "tower" | "temple" | "campfire";
 export type PriorityMark = "none" | "explore" | "defend" | "farm" | "mine";
 export type Role = "worker" | "farmer" | "warrior" | "scout" | "child" | "elder";
-export type GathererPhase = "idle" | "goingToResource" | "gathering" | "goingToStorage" | "depositing";
+export type GathererPhase = "idle" | "goingToResource" | "gathering" | "goingToStorage";
 
 export interface ResourceNode {
   type: ResourceType;

@@ -149,7 +149,7 @@ export class WorldEngine {
   ): number {
     let total = 0;
     let totalAmplitude = 0;
-    const baseFrequency = 0.02; // Frecuencia base más baja para características más grandes
+    const baseFrequency = 0.015; // Frecuencia aún más baja para características más grandes y coherentes
     
     octaves.forEach((octave, i) => {
       const frequency = baseFrequency * octave.freq;
@@ -169,40 +169,48 @@ export class WorldEngine {
   }
 
   private determineBiome(elevation: number, moisture: number): Terrain {
-    // Sistema de biomas inspirado en el diagrama de Whittaker
+    // Sistema de biomas mejorado con transiciones más naturales
     // Basado en elevación (temperatura) y humedad
     
-    // Océanos y costas
-    if (elevation < 0.1) return "ocean";
-    if (elevation < 0.15) return "beach";
+    // Océanos - umbrales más estrictos para evitar dispersión
+    if (elevation < 0.08) return "ocean";
+    if (elevation < 0.12) return "beach";
     
-    // Montañas altas (frío)
-    if (elevation > 0.8) {
-      if (moisture < 0.1) return "mountain"; // Montaña árida
-      if (moisture < 0.3) return "tundra";
+    // Montañas altas (frío) - transiciones más suaves
+    if (elevation > 0.85) {
+      if (moisture < 0.15) return "mountain"; // Montaña árida
+      if (moisture < 0.35) return "tundra";
       return "snow"; // Picos nevados
     }
     
+    // Tierras altas
+    if (elevation > 0.7) {
+      if (moisture < 0.2) return "mountain"; // Montaña media
+      if (moisture < 0.4) return "tundra";
+      if (moisture < 0.7) return "forest";
+      return "tundra"; // Bosque frío de montaña
+    }
+    
     // Tierras medias-altas
-    if (elevation > 0.6) {
+    if (elevation > 0.5) {
       if (moisture < 0.25) return "desert";
-      if (moisture < 0.5) return "grassland";
+      if (moisture < 0.45) return "grassland";
       if (moisture < 0.75) return "forest";
-      return "tundra"; // Bosque frío
+      return "forest"; // Bosque húmedo
     }
     
     // Tierras medias
-    if (elevation > 0.3) {
+    if (elevation > 0.25) {
       if (moisture < 0.2) return "desert";
       if (moisture < 0.4) return "grassland";
-      if (moisture < 0.74) return "forest";
-      return "swamp"; // Muy húmedo = pantano
+      if (moisture < 0.8) return "forest";
+      return "swamp"; // Pantano en tierras bajas húmedas
     }
     
-    // Tierras bajas
-    if (moisture < 0.2) return "desert"; // Desierto costero
-    if (moisture < 0.4) return "grassland";
-    if (moisture < 0.75) return "forest";
+    // Tierras bajas - más coherentes
+    if (moisture < 0.25) return "grassland"; // Pradera costera
+    if (moisture < 0.5) return "grassland";
+    if (moisture < 0.8) return "forest";
     return "swamp"; // Pantano costero
   }
 
@@ -211,16 +219,16 @@ export class WorldEngine {
     moistureMap: number[][],
     seed: number
   ): BiomeRegionResult {
-    const approxRegionSize = Math.max(8, Math.floor(this.size / 5));
+    const approxRegionSize = Math.max(12, Math.floor(this.size / 4)); // Regiones más grandes
     const targetRegions = clamp(
       Math.floor((this.size * this.size) / (approxRegionSize * approxRegionSize)),
-      8,
-      48
+      6,
+      32 // Menos regiones para mayor cohesión
     );
     const regionSeed = (seed ^ 0x9e3779b9) >>> 0;
     const regionRng = mulberry32(regionSeed);
     const regions: BiomeRegion[] = [];
-    const candidateTries = 12;
+    const candidateTries = 15; // Más intentos para mejor distribución
 
     for (let i = 0; i < targetRegions; i += 1) {
       let bestCandidate: Vec2 | undefined;
@@ -314,7 +322,7 @@ export class WorldEngine {
       }
     }
 
-    this.smoothBiomeRegions(regionMap, 2);
+    this.smoothBiomeRegions(regionMap, 3); // Más iteraciones de suavizado
     return { map: regionMap, regions };
   }
 
@@ -329,16 +337,22 @@ export class WorldEngine {
           if (current === undefined) continue;
           const counts = new Map<number, number>();
 
-          for (let dy = -1; dy <= 1; dy += 1) {
-            for (let dx = -1; dx <= 1; dx += 1) {
+          // Usar un radio más grande para mayor suavizado
+          const radius = iteration === 0 ? 1 : 2;
+          for (let dy = -radius; dy <= radius; dy += 1) {
+            for (let dx = -radius; dx <= radius; dx += 1) {
               const id = snapshot[y + dy]?.[x + dx];
               if (id === undefined) continue;
-              counts.set(id, (counts.get(id) ?? 0) + 1);
+              // Dar más peso a celdas más cercanas
+              const distance = Math.abs(dx) + Math.abs(dy);
+              const weight = distance === 0 ? 3 : distance === 1 ? 2 : 1;
+              counts.set(id, (counts.get(id) ?? 0) + weight);
             }
           }
 
           const dominant = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-          if (dominant && dominant[1] >= 5 && dominant[0] !== current) {
+          const threshold = iteration === 0 ? 8 : 12; // Umbral más alto para mayor estabilidad
+          if (dominant && dominant[1] >= threshold && dominant[0] !== current) {
             const row = regionMap[y];
             if (!row) continue;
             row[x] = dominant[0];
@@ -351,14 +365,20 @@ export class WorldEngine {
   private getBiomeSpread(biome: Terrain): number {
     switch (biome) {
       case "ocean":
-        return 0.65;
+        return 0.5; // Más concentrado para evitar dispersión
       case "beach":
-        return 1.05;
+        return 0.8; // Más cohesivo alrededor del océano
       case "mountain":
       case "snow":
-        return 1.25;
+        return 1.4; // Mayor expansión para montañas
+      case "desert":
+        return 1.3; // Desiertos más extensos
+      case "forest":
+        return 1.1; // Bosques ligeramente expansivos
       case "swamp":
-        return 0.95;
+        return 0.7; // Pantanos más localizados
+      case "river":
+        return 0.3; // Ríos muy localizados
       default:
         return 1;
     }
@@ -373,48 +393,91 @@ export class WorldEngine {
     if (regionBiome === localBiome) {
       return localBiome;
     }
+    
+    // Biomas acuáticos tienen prioridad absoluta para evitar dispersión
     if (regionBiome === "ocean" || regionBiome === "beach") {
       return regionBiome;
     }
+    
+    // Transiciones más naturales para montañas
     if (regionBiome === "snow") {
-      return elevation > 0.7 ? "snow" : "tundra";
+      if (elevation > 0.75) return "snow";
+      if (elevation > 0.6) return "tundra";
+      return localBiome; // Transición gradual
     }
-    if (regionBiome === "mountain" && elevation < 0.55) {
+    
+    if (regionBiome === "mountain") {
+      if (elevation > 0.7) return "mountain";
+      if (elevation > 0.5) return elevation > 0.6 ? "tundra" : "grassland";
       return localBiome;
     }
-    if (regionBiome === "desert" && moisture > 0.55) {
-      return localBiome;
+    
+    // Transiciones más suaves para desiertos
+    if (regionBiome === "desert") {
+      if (moisture > 0.6) return "grassland"; // Transición a pradera
+      if (moisture > 0.4 && elevation < 0.3) return "grassland";
+      return regionBiome;
     }
-    if (regionBiome === "swamp" && moisture < 0.45) {
-      return localBiome;
+    
+    // Pantanos requieren condiciones específicas
+    if (regionBiome === "swamp") {
+      if (moisture < 0.4 || elevation > 0.5) return localBiome;
+      return regionBiome;
     }
-    if (regionBiome === "tundra" && elevation < 0.4) {
-      return "grassland";
+    
+    // Tundra con transiciones mejoradas
+    if (regionBiome === "tundra") {
+      if (elevation < 0.3) return "grassland";
+      if (elevation < 0.5 && moisture > 0.6) return "forest";
+      return regionBiome;
     }
+    
+    // Bosques con transiciones naturales
+    if (regionBiome === "forest") {
+      if (moisture < 0.2) return "grassland";
+      if (elevation > 0.8) return "tundra";
+      return regionBiome;
+    }
+    
     return regionBiome;
   }
 
   private applyExtremeElevationBias(terrain: Terrain, elevation: number, moisture: number): Terrain {
-    if (terrain !== "river") {
-      if (elevation < 0.04) {
-        return "ocean";
-      }
-      if (elevation < 0.12 && terrain !== "ocean") {
-        return "beach";
-      }
-      if (elevation > 0.9) {
-        return moisture > 0.4 ? "snow" : "mountain";
-      }
-      if (elevation > 0.78 && terrain !== "snow" && terrain !== "mountain") {
-        return moisture > 0.55 ? "snow" : "mountain";
-      }
+    // No modificar ríos
+    if (terrain === "river") {
+      return terrain;
     }
-    if (terrain === "desert" && moisture > 0.65) {
+    
+    // Océanos más concentrados y coherentes
+    if (elevation < 0.06) {
+      return "ocean";
+    }
+    if (elevation < 0.1 && (terrain === "ocean" || terrain === "beach")) {
+      return "beach";
+    }
+    
+    // Montañas con transiciones más naturales
+    if (elevation > 0.9) {
+      return moisture > 0.3 ? "snow" : "mountain";
+    }
+    if (elevation > 0.8) {
+      if (terrain === "ocean" || terrain === "beach") {
+        return terrain; // Mantener características acuáticas
+      }
+      return moisture > 0.5 ? "snow" : moisture > 0.3 ? "tundra" : "mountain";
+    }
+    
+    // Correcciones para coherencia de biomas húmedos
+    if (terrain === "desert" && moisture > 0.6) {
       return "grassland";
     }
-    if (terrain === "grassland" && moisture > 0.75) {
+    if (terrain === "grassland" && moisture > 0.8 && elevation < 0.7) {
       return "forest";
     }
+    if (terrain === "tundra" && elevation < 0.4 && moisture > 0.5) {
+      return "forest";
+    }
+    
     return terrain;
   }
 
