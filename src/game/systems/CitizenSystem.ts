@@ -351,7 +351,10 @@ export class CitizenSystem {
   private moveCitizenTowards(citizen: Citizen, targetX: number, targetY: number) {
     const dx = clamp(targetX - citizen.x, -1, 1);
     const dy = clamp(targetY - citizen.y, -1, 1);
-    if (dx === 0 && dy === 0) return;
+    if (dx === 0 && dy === 0) {
+      this.handleMoveArrival(citizen, targetX, targetY);
+      return;
+    }
 
     const tries: Vec2[] = [];
     const start = { x: citizen.x, y: citizen.y };
@@ -375,8 +378,22 @@ export class CitizenSystem {
       if (this.world.moveCitizen(citizen.id, { x: citizen.x, y: citizen.y }, next)) {
         citizen.x = next.x;
         citizen.y = next.y;
+        if (citizen.x === targetX && citizen.y === targetY) {
+          this.handleMoveArrival(citizen, targetX, targetY);
+        }
         return;
       }
+    }
+  }
+
+  private handleMoveArrival(citizen: Citizen, targetX: number, targetY: number) {
+    const brain = citizen.brain;
+    if (!brain || brain.kind !== "gatherer" || !brain.target) return;
+    if (brain.target.x !== targetX || brain.target.y !== targetY) return;
+    if (brain.phase === "goingToResource") {
+      brain.phase = "gathering";
+    } else if (brain.phase === "goingToStorage") {
+      brain.phase = "depositing";
     }
   }
 
