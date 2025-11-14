@@ -76,7 +76,7 @@ export class CitizenSystem {
       const cell = this.world.getCell(citizen.x, citizen.y);
       const hungerRate = cell?.terrain === "desert" ? 1.5 : 1;
       citizen.age += tickHours;
-      citizen.hunger = clamp(citizen.hunger + hungerRate * 1.2, 0, 100);
+      citizen.hunger = clamp(citizen.hunger + hungerRate * 0.864, 0, 100);
       citizen.fatigue = clamp(citizen.fatigue + 0.8, 0, 100);
       citizen.morale = clamp(citizen.morale - 0.2, 0, 100);
 
@@ -111,7 +111,6 @@ export class CitizenSystem {
     }
 
     this.citizens = this.citizens.filter((citizen) => citizen.state !== "dead");
-    this.resolveConflicts();
   }
 
   spawnMigrants(attitude: "neutral" | "friendly" | "hostile") {
@@ -400,18 +399,7 @@ export class CitizenSystem {
     }
   }
 
-  private resolveConflicts() {
-    const hostiles = this.citizens.filter((citizen) => citizen.tribeId !== 1 && citizen.state === "alive");
-    hostiles.forEach((hostile) => {
-      const view = this.world.getView(hostile, 4);
-      const target = view.nearbyCitizens.find((cit) => cit.tribeId === 1);
-      if (target) {
-        this.handleAttack(hostile, target.id);
-      } else if (view.villageCenter) {
-        this.moveCitizenTowards(hostile, view.villageCenter.x, view.villageCenter.y);
-      }
-    });
-  }
+
 
   private logCitizenAction(citizen: Citizen, action: CitizenAction, source: string) {
     if (!this.debugLogging) return;
@@ -596,14 +584,21 @@ const ensureGathererBrain = (citizen: Citizen, resourceType: "food" | "stone"): 
 };
 
 const findClosestResourceCell = (citizen: Citizen, view: WorldView, resourceType: "food" | "stone") => {
-  const candidates = view.cells.filter((cell) => cell.resource?.type === resourceType && (cell.resource.amount ?? 0) > 0);
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => {
-    const da = Math.abs(a.x - citizen.x) + Math.abs(a.y - citizen.y);
-    const db = Math.abs(b.x - citizen.x) + Math.abs(b.y - citizen.y);
-    return da - db;
-  });
-  return candidates[0];
+  let closest: (typeof view.cells)[number] | null = null;
+  let minDistance = Infinity;
+  
+  for (const cell of view.cells) {
+    if (!cell.resource || cell.resource.type !== resourceType || (cell.resource.amount ?? 0) <= 0) continue;
+    
+    const distance = Math.abs(cell.x - citizen.x) + Math.abs(cell.y - citizen.y);
+    if (distance < minDistance) {
+      minDistance = distance;
+      closest = cell;
+      if (distance === 1) break;
+    }
+  }
+  
+  return closest;
 };
 
 const findStorageTarget = (citizen: Citizen, view: WorldView): Vec2 => {
@@ -654,16 +649,16 @@ const runGathererBrain = (citizen: Citizen, view: WorldView, resourceType: "food
       return { type: "move", x: brain.target.x, y: brain.target.y };
     }
     case "gathering": {
-      if (isInventoryFull(citizen, resourceType)) {
-        brain.phase = "goingToStorage";
-        brain.target = findStorageTarget(citizen, view);
-        return { type: "move", x: brain.target.x, y: brain.target.y };
-      }
       const cell = view.cells.find((c) => c.x === citizen.x && c.y === citizen.y);
       if (!cell || !cell.resource || cell.resource.type !== resourceType || (cell.resource.amount ?? 0) <= 0) {
         brain.phase = "idle";
         brain.target = null;
         return wanderCitizen(citizen);
+      }
+      if (isInventoryFull(citizen, resourceType)) {
+        brain.phase = "goingToStorage";
+        brain.target = findStorageTarget(citizen, view);
+        return { type: "move", x: brain.target.x, y: brain.target.y };
       }
       return { type: "gather", resourceType };
     }
@@ -689,13 +684,34 @@ const runGathererBrain = (citizen: Citizen, view: WorldView, resourceType: "food
 };
 
 const farmerAI: CitizenAI = (citizen, view) => {
-  const farmCell = view.cells.find((cell) => cell.priority === "farm" && cell.terrain === "grass" && !cell.cropReady);
-  if (farmCell && !isInventoryFull(citizen, "food")) {
+  // Prioridad 1: Recoger cultivos maduros cercanos primero
+  const matureCrop = view.cells.find(
+    (cell) => cell.cropReady && cell.resource?.type === "food" && (cell.resource.amount ?? 0) > 0
+  );
+  if (matureCrop && !isInventoryFull(citizen, "food")) {
+    if (citizen.x === matureCrop.x && citizen.y === matureCrop.y) {
+      return { type: "gather", resourceType: "food" };
+    }
+    return { type: "move", x: matureCrop.x, y: matureCrop.y };
+  }
+
+  // Prioridad 2: Si el inventario está lleno, depositar
+  if (isInventoryFull(citizen, "food") && citizen.carrying.food > 0) {
+    return runGathererBrain(citizen, view, "food");
+  }
+
+  // Prioridad 3: Cultivar celdas marcadas como farm
+  const farmCell = view.cells.find(
+    (cell) => cell.priority === "farm" && cell.terrain === "grass" && !cell.cropReady
+  );
+  if (farmCell) {
     if (citizen.x === farmCell.x && citizen.y === farmCell.y) {
       return { type: "tendCrops", x: farmCell.x, y: farmCell.y };
     }
     return { type: "move", x: farmCell.x, y: farmCell.y };
   }
+
+  // Prioridad 4: Recolectar comida natural si no hay cultivos para tender
   return runGathererBrain(citizen, view, "food");
 };
 
