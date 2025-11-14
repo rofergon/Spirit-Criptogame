@@ -5,6 +5,7 @@ export type ResourceType = "food" | "stone" | "waterSpring";
 export type StructureType = "village" | "granary" | "house" | "tower" | "temple" | "campfire";
 export type PriorityMark = "none" | "explore" | "defend" | "farm" | "mine";
 export type Role = "worker" | "farmer" | "warrior" | "scout" | "child" | "elder";
+export type GathererPhase = "idle" | "goingToResource" | "gathering" | "goingToStorage" | "depositing";
 
 export interface ResourceNode {
   type: ResourceType;
@@ -26,6 +27,20 @@ export interface WorldCell {
   cropProgress: number;
 }
 
+export interface GathererBrain {
+  kind: "gatherer";
+  resourceType: "food" | "stone";
+  phase: GathererPhase;
+  target?: Vec2 | null;
+}
+
+export type CitizenBrain = GathererBrain | { kind: "none" };
+
+export type CitizenActionLogEntry = {
+  timestamp: number;
+  description: string;
+};
+
 export interface Citizen {
   id: number;
   x: number;
@@ -46,6 +61,10 @@ export interface Citizen {
   blessedUntil?: number;
   state: "alive" | "dead";
   currentGoal?: string;
+  brain?: CitizenBrain;
+  lastDamageCause?: string;
+  debugLastAction?: string;
+  actionHistory: CitizenActionLogEntry[];
 }
 
 export interface WorldView {
