@@ -3,6 +3,7 @@ import type {
   Citizen,
   CitizenAction,
   CitizenAI,
+  GathererBrain,
   PriorityMark,
   ResourceType,
   Role,
@@ -16,10 +17,15 @@ export type CitizenSystemEvent =
   | { type: "log"; message: string; notificationType?: ToastNotification["type"] }
   | { type: "powerGain"; amount: number };
 
+type AssignableRole = Extract<Role, "farmer" | "worker" | "warrior" | "scout">;
+const ASSIGNABLE_ROLES: AssignableRole[] = ["farmer", "worker", "warrior", "scout"];
+
 export class CitizenSystem {
   private citizens: Citizen[] = [];
   private citizenById = new Map<number, Citizen>();
   private nextCitizenId = 1;
+  private debugLogging = true;
+  private elapsedHours = 0;
 
   constructor(private world: WorldEngine, private emit: (event: CitizenSystemEvent) => void = () => {}) {}
 
@@ -59,10 +65,12 @@ export class CitizenSystem {
       tribeId,
       carrying: { food: 0, stone: 0 },
       state: "alive",
+      actionHistory: [],
     };
   }
 
   update(tickHours: number) {
+    this.elapsedHours += tickHours;
     for (const citizen of this.citizens) {
       if (citizen.state === "dead") continue;
       const cell = this.world.getCell(citizen.x, citizen.y);
@@ -72,16 +80,14 @@ export class CitizenSystem {
       citizen.fatigue = clamp(citizen.fatigue + 0.8, 0, 100);
       citizen.morale = clamp(citizen.morale - 0.2, 0, 100);
 
-      if (citizen.hunger > 80) citizen.health -= 4;
-      if (citizen.fatigue > 80) citizen.health -= 2;
+      if (citizen.hunger > 80) this.inflictDamage(citizen, 4, "hambre");
+      if (citizen.fatigue > 80) this.inflictDamage(citizen, 2, "agotamiento");
       if (citizen.morale < 20) citizen.currentGoal = "passive";
 
-      if (citizen.age > 70 && Math.random() < tickHours * 0.02) citizen.health -= 5;
+      if (citizen.age > 70 && Math.random() < tickHours * 0.02) this.inflictDamage(citizen, 5, "vejez");
 
       if (citizen.health <= 0) {
-        citizen.state = "dead";
-        this.world.removeCitizen(citizen.id, { x: citizen.x, y: citizen.y });
-        this.emit({ type: "log", message: `Habitante ${citizen.id} ha muerto.` });
+        this.finalizeCitizenDeath(citizen);
         continue;
       }
 
@@ -90,11 +96,17 @@ export class CitizenSystem {
       }
 
       const view = this.world.getView(citizen, 5);
-      let action: CitizenAction | null = this.evaluateUrgentNeed(citizen, view);
-      if (!action) {
+      const urgentAction = this.evaluateUrgentNeed(citizen, view);
+      let actionSource = "urgencia";
+      let action: CitizenAction;
+      if (urgentAction) {
+        action = urgentAction;
+      } else {
         const ai = aiDispatch[citizen.role] ?? passiveAI;
         action = ai(citizen, view);
+        actionSource = `rol ${citizen.role}`;
       }
+      this.logCitizenAction(citizen, action, actionSource);
       this.applyCitizenAction(citizen, action, tickHours);
     }
 
@@ -145,6 +157,78 @@ export class CitizenSystem {
     return this.citizens.filter(filter).length;
   }
 
+  getAssignablePopulationCount(tribeId?: number) {
+    return this.citizens.filter(
+      (citizen) =>
+        citizen.state === "alive" &&
+        citizen.role !== "child" &&
+        citizen.role !== "elder" &&
+        (tribeId === undefined || citizen.tribeId === tribeId),
+    ).length;
+  }
+
+  getRoleCounts(tribeId?: number) {
+    const counts: Record<Role, number> = {
+      worker: 0,
+      farmer: 0,
+      warrior: 0,
+      scout: 0,
+      child: 0,
+      elder: 0,
+    };
+    this.citizens.forEach((citizen) => {
+      if (citizen.state !== "alive") return;
+      if (tribeId !== undefined && citizen.tribeId !== tribeId) return;
+      counts[citizen.role] += 1;
+    });
+    return counts;
+  }
+
+  rebalanceRoles(targets: Partial<Record<AssignableRole, number>>, tribeId?: number) {
+    const pool = this.citizens.filter(
+      (citizen) =>
+        citizen.state === "alive" &&
+        citizen.role !== "child" &&
+        citizen.role !== "elder" &&
+        (tribeId === undefined || citizen.tribeId === tribeId),
+    );
+    if (pool.length === 0) return;
+    const assigned = new Set<number>();
+    const assignCitizen = (citizen: Citizen, role: AssignableRole) => {
+      if (citizen.role !== role) {
+        citizen.role = role;
+      }
+      assigned.add(citizen.id);
+    };
+
+    for (const role of ASSIGNABLE_ROLES) {
+      if (assigned.size >= pool.length) break;
+      const desiredRaw = Math.max(0, Math.floor(targets[role] ?? 0));
+      if (desiredRaw <= 0) continue;
+      const availableSlots = pool.length - assigned.size;
+      if (availableSlots <= 0) break;
+      const targetCount = Math.min(desiredRaw, availableSlots);
+      let assignedForRole = 0;
+      for (const citizen of pool) {
+        if (assigned.has(citizen.id)) continue;
+        if (citizen.role === role) {
+          assignCitizen(citizen, role);
+          assignedForRole += 1;
+          if (assignedForRole >= targetCount) break;
+        }
+      }
+      if (assignedForRole >= targetCount) continue;
+      for (const citizen of pool) {
+        if (assigned.has(citizen.id)) continue;
+        assignCitizen(citizen, role);
+        assignedForRole += 1;
+        if (assignedForRole >= targetCount) {
+          break;
+        }
+      }
+    }
+  }
+
   private findSpawnNearVillage() {
     const { villageCenter } = this.world;
     for (let radius = 0; radius < 6; radius += 1) {
@@ -167,7 +251,11 @@ export class CitizenSystem {
     }
 
     if (citizen.hunger > 90) {
-      return { type: "move", x: view.villageCenter?.x ?? citizen.x, y: view.villageCenter?.y ?? citizen.y };
+      const foodAvailable = this.world.stockpile.food > 0 || citizen.carrying.food > 0;
+      if (foodAvailable) {
+        return { type: "move", x: view.villageCenter?.x ?? citizen.x, y: view.villageCenter?.y ?? citizen.y };
+      }
+      return null;
     }
 
     if (view.threats.length > 0 && citizen.role !== "warrior") {
@@ -182,7 +270,7 @@ export class CitizenSystem {
     }
 
     if (citizen.role === "elder" && citizen.age > 85) {
-      citizen.health -= 2;
+      this.inflictDamage(citizen, 2, "fragilidad");
     }
 
     return null;
@@ -235,18 +323,17 @@ export class CitizenSystem {
     if (!cell || !cell.resource || cell.resource.type !== type) return;
     const amount = clamp(cell.resource.amount, 0, 3);
     if (amount <= 0) return;
-    cell.resource.amount = clamp(cell.resource.amount - 1, 0, 10);
+    const gatherAmount = type === "food" && citizen.role === "farmer" ? 1.1 : 1;
+    cell.resource.amount = clamp(cell.resource.amount - gatherAmount, 0, 10);
     if (type === "food") {
-      citizen.carrying.food += 1;
+      citizen.carrying.food += gatherAmount;
       if (cell.cropProgress >= 1) {
         cell.cropProgress = 0;
       }
     } else if (type === "stone") {
       citizen.carrying.stone += 1;
     }
-    if (citizen.carrying.food >= 3 || citizen.carrying.stone >= 3) {
-      this.applyCitizenAction(citizen, { type: "storeResources" }, 0);
-    }
+    // Depositing now happens via the gatherer brain's state machine.
   }
 
   private storeResources(citizen: Citizen) {
@@ -277,11 +364,10 @@ export class CitizenSystem {
       return;
     }
     const damage = attacker.role === "warrior" ? 15 : 5;
-    target.health -= damage;
+    this.inflictDamage(target, damage, `combate con ${attacker.id}`);
     attacker.fatigue = clamp(attacker.fatigue + 5, 0, 100);
     if (target.health <= 0) {
-      target.state = "dead";
-      this.world.removeCitizen(target.id, { x: target.x, y: target.y });
+      this.finalizeCitizenDeath(target);
       if (target.tribeId !== attacker.tribeId) {
         this.emit({ type: "powerGain", amount: 2 });
       }
@@ -307,7 +393,7 @@ export class CitizenSystem {
     const cell = this.world.getCell(x, y);
     if (!cell) return;
     if (citizen.x !== x || citizen.y !== y) return;
-    cell.cropProgress = clamp(cell.cropProgress + 0.1 * tickHours, 0, 1.2);
+    cell.cropProgress = clamp(cell.cropProgress + 0.11 * tickHours, 0, 1.2);
     citizen.fatigue = clamp(citizen.fatigue + 1, 0, 100);
     if (cell.cropProgress >= 1 && !cell.resource) {
       cell.resource = { type: "food", amount: 2, renewable: true, richness: cell.fertility };
@@ -327,12 +413,123 @@ export class CitizenSystem {
     });
   }
 
+  private logCitizenAction(citizen: Citizen, action: CitizenAction, source: string) {
+    if (!this.debugLogging) return;
+    const signature = `${source}|${this.getActionSignature(action)}`;
+    if (citizen.debugLastAction === signature) return;
+    citizen.debugLastAction = signature;
+
+    const description = this.describeAction(action);
+    const brainPhase = citizen.brain?.kind === "gatherer" ? ` fase:${citizen.brain.phase}` : "";
+    const carrying = `F${citizen.carrying.food}/P${citizen.carrying.stone}`;
+    const hunger = `hambre ${citizen.hunger.toFixed(0)}`;
+    const logMessage = `[DEBUG] Habitante ${citizen.id} (${citizen.role}) ${description} via ${source}${brainPhase} @${this.formatCoords(
+      citizen.x,
+      citizen.y,
+    )} | ${carrying} | ${hunger}`;
+    this.emit({
+      type: "log",
+      message: logMessage,
+    });
+    this.appendCitizenHistory(citizen, `${description} via ${source}${brainPhase} @${this.formatCoords(citizen.x, citizen.y)} | ${carrying} | ${hunger}`);
+  }
+
+  private appendCitizenHistory(citizen: Citizen, details: string) {
+    citizen.actionHistory.unshift({
+      timestamp: this.elapsedHours,
+      description: details,
+    });
+    if (citizen.actionHistory.length > 15) {
+      citizen.actionHistory.length = 15;
+    }
+  }
+
+  private describeAction(action: CitizenAction): string {
+    switch (action.type) {
+      case "move":
+        return `se mueve hacia ${this.formatCoords(action.x, action.y)}`;
+      case "gather":
+        return `recolecta ${action.resourceType}`;
+      case "storeResources":
+        return "deposita recursos";
+      case "rest":
+        return "descansa";
+      case "idle":
+        return "permanece inactivo";
+      case "attack":
+        return `ataca al objetivo ${action.targetId}`;
+      case "mate":
+        return `busca pareja ${action.partnerId}`;
+      case "tendCrops":
+        return `atiende cultivos en ${this.formatCoords(action.x, action.y)}`;
+      default:
+        return "acción desconocida";
+    }
+  }
+
+  private getActionSignature(action: CitizenAction): string {
+    switch (action.type) {
+      case "move":
+        return `move:${action.x},${action.y}`;
+      case "gather":
+        return `gather:${action.resourceType}`;
+      case "storeResources":
+        return "store";
+      case "rest":
+        return "rest";
+      case "idle":
+        return "idle";
+      case "attack":
+        return `attack:${action.targetId}`;
+      case "mate":
+        return `mate:${action.partnerId}`;
+      case "tendCrops":
+        return `tend:${action.x},${action.y}`;
+      default:
+        return "unknown";
+    }
+  }
+
+  private formatCoords(x: number, y: number): string {
+    return `(${x},${y})`;
+  }
+
+  private inflictDamage(citizen: Citizen, amount: number, cause: string) {
+    citizen.health = clamp(citizen.health - amount, -50, 100);
+    citizen.lastDamageCause = cause;
+  }
+
+  private finalizeCitizenDeath(citizen: Citizen) {
+    citizen.state = "dead";
+    this.world.removeCitizen(citizen.id, { x: citizen.x, y: citizen.y });
+    const reason = citizen.lastDamageCause ?? "causa desconocida";
+    this.emit({
+      type: "log",
+      message: `Habitante ${citizen.id} ha muerto (${reason}) en ${this.formatCoords(citizen.x, citizen.y)}.`,
+    });
+  }
+
   private tryEatFromStockpile(citizen: Citizen) {
+    let ateFromCarry = false;
+    if (citizen.carrying.food > 0) {
+      const ration = Math.min(2, citizen.carrying.food);
+      citizen.carrying.food -= ration;
+      citizen.hunger = clamp(citizen.hunger - ration * 5, 0, 100);
+      citizen.morale = clamp(citizen.morale + 3, 0, 100);
+      ateFromCarry = ration > 0;
+      if (citizen.hunger <= 70) {
+        return;
+      }
+    }
+
     if (this.world.stockpile.food <= 0) {
-      citizen.morale -= 3;
-      citizen.health -= 1;
+      if (!ateFromCarry) {
+        citizen.morale = clamp(citizen.morale - 3, 0, 100);
+        this.inflictDamage(citizen, 1, "hambre (sin reservas)");
+      }
       return;
     }
+
     const eaten = this.world.consume("food", 3);
     if (eaten > 0) {
       citizen.hunger = clamp(citizen.hunger - eaten * 5, 0, 100);
@@ -361,48 +558,149 @@ const warriorAI: CitizenAI = (citizen, view) => {
   return { type: "idle" };
 };
 
-const farmerAI: CitizenAI = (citizen, view) => {
-  const harvestTarget = [...view.cells]
-    .filter((cell) => cell.resource?.type === "food")
-    .sort((a, b) => {
-      const da = Math.abs(a.x - citizen.x) + Math.abs(a.y - citizen.y);
-      const db = Math.abs(b.x - citizen.x) + Math.abs(b.y - citizen.y);
-      return da - db;
-    })[0];
+const MAX_FOOD_CARRY = 3;
+const MAX_STONE_CARRY = 3;
 
-  if (harvestTarget) {
-    if (citizen.x === harvestTarget.x && citizen.y === harvestTarget.y) {
-      return { type: "gather", resourceType: "food" };
+const randomStep = () => Math.round(Math.random() * 2 - 1);
+
+const pickWanderTarget = (citizen: Citizen): Vec2 => {
+  for (let attempts = 0; attempts < 3; attempts += 1) {
+    const dx = randomStep();
+    const dy = randomStep();
+    if (dx !== 0 || dy !== 0) {
+      return { x: citizen.x + dx, y: citizen.y + dy };
     }
-    return { type: "move", x: harvestTarget.x, y: harvestTarget.y };
   }
+  return { x: citizen.x, y: citizen.y };
+};
 
-  const farmCell = view.cells.find((cell) => cell.priority === "farm" && cell.terrain === "grass");
-  if (farmCell) {
+const wanderCitizen = (citizen: Citizen): CitizenAction => {
+  const target = pickWanderTarget(citizen);
+  return { type: "move", x: target.x, y: target.y };
+};
+
+const isInventoryFull = (citizen: Citizen, resourceType: "food" | "stone") => {
+  return resourceType === "food" ? citizen.carrying.food >= MAX_FOOD_CARRY : citizen.carrying.stone >= MAX_STONE_CARRY;
+};
+
+const ensureGathererBrain = (citizen: Citizen, resourceType: "food" | "stone"): GathererBrain => {
+  if (!citizen.brain || citizen.brain.kind !== "gatherer" || citizen.brain.resourceType !== resourceType) {
+    citizen.brain = {
+      kind: "gatherer",
+      resourceType,
+      phase: "idle",
+      target: null,
+    };
+  }
+  return citizen.brain as GathererBrain;
+};
+
+const findClosestResourceCell = (citizen: Citizen, view: WorldView, resourceType: "food" | "stone") => {
+  const candidates = view.cells.filter((cell) => cell.resource?.type === resourceType && (cell.resource.amount ?? 0) > 0);
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    const da = Math.abs(a.x - citizen.x) + Math.abs(a.y - citizen.y);
+    const db = Math.abs(b.x - citizen.x) + Math.abs(b.y - citizen.y);
+    return da - db;
+  });
+  return candidates[0];
+};
+
+const findStorageTarget = (citizen: Citizen, view: WorldView): Vec2 => {
+  const storageCell = view.cells.find((cell) => cell.structure === "granary" || cell.structure === "village");
+  if (storageCell) {
+    return { x: storageCell.x, y: storageCell.y };
+  }
+  if (view.villageCenter) {
+    return { x: view.villageCenter.x, y: view.villageCenter.y };
+  }
+  return { x: citizen.x, y: citizen.y };
+};
+
+const runGathererBrain = (citizen: Citizen, view: WorldView, resourceType: "food" | "stone"): CitizenAction => {
+  const brain = ensureGathererBrain(citizen, resourceType);
+
+  switch (brain.phase) {
+    case "idle": {
+      if (isInventoryFull(citizen, resourceType)) {
+        brain.phase = "goingToStorage";
+        brain.target = findStorageTarget(citizen, view);
+        return { type: "move", x: brain.target.x, y: brain.target.y };
+      }
+      const targetCell = findClosestResourceCell(citizen, view, resourceType);
+      if (!targetCell) {
+        brain.target = null;
+        return wanderCitizen(citizen);
+      }
+      brain.phase = "goingToResource";
+      brain.target = { x: targetCell.x, y: targetCell.y };
+      return { type: "move", x: targetCell.x, y: targetCell.y };
+    }
+    case "goingToResource": {
+      if (!brain.target) {
+        brain.phase = "idle";
+        brain.target = null;
+        return wanderCitizen(citizen);
+      }
+      if (isInventoryFull(citizen, resourceType)) {
+        brain.phase = "goingToStorage";
+        brain.target = findStorageTarget(citizen, view);
+        return { type: "move", x: brain.target.x, y: brain.target.y };
+      }
+      if (citizen.x === brain.target.x && citizen.y === brain.target.y) {
+        brain.phase = "gathering";
+        return { type: "gather", resourceType };
+      }
+      return { type: "move", x: brain.target.x, y: brain.target.y };
+    }
+    case "gathering": {
+      if (isInventoryFull(citizen, resourceType)) {
+        brain.phase = "goingToStorage";
+        brain.target = findStorageTarget(citizen, view);
+        return { type: "move", x: brain.target.x, y: brain.target.y };
+      }
+      const cell = view.cells.find((c) => c.x === citizen.x && c.y === citizen.y);
+      if (!cell || !cell.resource || cell.resource.type !== resourceType || (cell.resource.amount ?? 0) <= 0) {
+        brain.phase = "idle";
+        brain.target = null;
+        return wanderCitizen(citizen);
+      }
+      return { type: "gather", resourceType };
+    }
+    case "goingToStorage": {
+      if (!brain.target) {
+        brain.target = findStorageTarget(citizen, view);
+      }
+      if (citizen.x === brain.target.x && citizen.y === brain.target.y) {
+        brain.phase = "depositing";
+        return { type: "storeResources" };
+      }
+      return { type: "move", x: brain.target.x, y: brain.target.y };
+    }
+    case "depositing": {
+      if (!isInventoryFull(citizen, resourceType)) {
+        brain.phase = "idle";
+        brain.target = null;
+        return { type: "idle" };
+      }
+      return { type: "storeResources" };
+    }
+  }
+};
+
+const farmerAI: CitizenAI = (citizen, view) => {
+  const farmCell = view.cells.find((cell) => cell.priority === "farm" && cell.terrain === "grass" && !cell.cropReady);
+  if (farmCell && !isInventoryFull(citizen, "food")) {
     if (citizen.x === farmCell.x && citizen.y === farmCell.y) {
       return { type: "tendCrops", x: farmCell.x, y: farmCell.y };
     }
     return { type: "move", x: farmCell.x, y: farmCell.y };
   }
-
-  return { type: "move", x: citizen.x + Math.round(Math.random() * 2 - 1), y: citizen.y + Math.round(Math.random() * 2 - 1) };
+  return runGathererBrain(citizen, view, "food");
 };
 
 const workerAI: CitizenAI = (citizen, view) => {
-  const mineCell = view.cells.find((cell) => cell.priority === "mine" && cell.resource?.type === "stone");
-  if (mineCell) {
-    if (citizen.x === mineCell.x && citizen.y === mineCell.y) {
-      return { type: "gather", resourceType: "stone" };
-    }
-    return { type: "move", x: mineCell.x, y: mineCell.y };
-  }
-
-  const stoneCell = view.cells.find((cell) => cell.resource?.type === "stone");
-  if (stoneCell) {
-    return { type: "move", x: stoneCell.x, y: stoneCell.y };
-  }
-
-  return { type: "idle" };
+  return runGathererBrain(citizen, view, "stone");
 };
 
 const scoutAI: CitizenAI = (citizen, view) => {
