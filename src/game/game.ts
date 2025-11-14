@@ -646,6 +646,24 @@ export class Game {
     requestAnimationFrame(this.loop);
   }
 
+  pause() {
+    this.running = false;
+    this.updateStatusText("⏸️ En pausa.");
+  }
+
+  resume() {
+    if (this.running) return;
+    this.running = true;
+    this.lastTime = performance.now();
+    this.updateStatusText("▶️ Simulación en curso.");
+    requestAnimationFrame(this.loop);
+  }
+
+  private updateStatusText(text: string) {
+    const statusText = document.querySelector<HTMLParagraphElement>("#status-text");
+    if (statusText) statusText.textContent = text;
+  }
+
   private spawnInitialCitizens() {
     const roles: Role[] = ["farmer", "farmer", "worker", "worker", "warrior", "warrior", "scout", "child", "child", "elder"];
     roles.forEach((role) => {
@@ -1254,13 +1272,19 @@ export class Game {
         <p>Presiona Enter para comenzar.</p>
       </div>
     `;
+    
+    const startGame = () => {
+      this.overlay?.setAttribute("hidden", "true");
+      window.removeEventListener("keydown", startHandler);
+      this.start();
+    };
+    
     const startHandler = (event: KeyboardEvent) => {
       if (event.code === "Enter") {
-        this.overlay?.setAttribute("hidden", "true");
-        window.removeEventListener("keydown", startHandler);
-        this.start();
+        startGame();
       }
     };
+    
     window.addEventListener("keydown", startHandler);
   }
 
@@ -1670,6 +1694,18 @@ export class Game {
 
     btnHelp?.addEventListener("click", () => {
       this.showNotification("Usa WASD para moverte, 1-4 para marcar áreas, E para bendecir", "info", 6000);
+    });
+
+    // Configurar botón de pausa/reanudar
+    const pauseButton = document.querySelector<HTMLButtonElement>("#pause-button");
+    pauseButton?.addEventListener("click", () => {
+      if (this.running) {
+        this.pause();
+        pauseButton.textContent = "▶️ Reanudar";
+      } else {
+        this.resume();
+        pauseButton.textContent = "⏸️ Pausar";
+      }
     });
   }
 
