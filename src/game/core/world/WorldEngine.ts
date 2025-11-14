@@ -13,6 +13,21 @@ import type {
   WorldView,
 } from "../types";
 
+type BiomeRegion = {
+  id: number;
+  x: number;
+  y: number;
+  biome: Terrain;
+  elevation: number;
+  moisture: number;
+  spread: number;
+};
+
+type BiomeRegionResult = {
+  map: number[][];
+  regions: BiomeRegion[];
+};
+
 export class WorldEngine {
   readonly size: number;
   readonly cells: WorldCell[][];
@@ -74,6 +89,8 @@ export class WorldEngine {
       }
     }
     
+    const biomeRegions = this.generateBiomeRegions(elevationMap, moistureMap, seed);
+
     // Paso 2: Generar ríos desde picos de montañas
     const rivers = this.generateRivers(elevationMap, moistureMap);
     
@@ -84,9 +101,16 @@ export class WorldEngine {
         const elevation = elevationMap[y]?.[x] ?? 0.5;
         const moisture = moistureMap[y]?.[x] ?? 0.5;
         
-        // Determinar bioma basado en sistema de Whittaker
-        let terrain: Terrain = this.determineBiome(elevation, moisture);
+        const baseBiome = this.determineBiome(elevation, moisture);
+        const regionId = biomeRegions.map[y]?.[x];
+        const regionBiome = regionId !== undefined ? biomeRegions.regions[regionId]?.biome : undefined;
         
+        let terrain: Terrain = baseBiome;
+        if (regionBiome) {
+          terrain = this.resolveRegionTerrain(regionBiome, baseBiome, elevation, moisture);
+        }
+        terrain = this.applyExtremeElevationBias(terrain, elevation, moisture);
+
         // Sobrescribir con río si existe
         if (rivers.has(`${x},${y}`)) {
           terrain = "river";
@@ -171,15 +195,227 @@ export class WorldEngine {
     if (elevation > 0.3) {
       if (moisture < 0.2) return "desert";
       if (moisture < 0.4) return "grassland";
-      if (moisture < 0.7) return "forest";
+      if (moisture < 0.74) return "forest";
       return "swamp"; // Muy húmedo = pantano
     }
     
     // Tierras bajas
     if (moisture < 0.2) return "desert"; // Desierto costero
     if (moisture < 0.4) return "grassland";
-    if (moisture < 0.7) return "forest";
+    if (moisture < 0.75) return "forest";
     return "swamp"; // Pantano costero
+  }
+
+  private generateBiomeRegions(
+    elevationMap: number[][],
+    moistureMap: number[][],
+    seed: number
+  ): BiomeRegionResult {
+    const approxRegionSize = Math.max(8, Math.floor(this.size / 5));
+    const targetRegions = clamp(
+      Math.floor((this.size * this.size) / (approxRegionSize * approxRegionSize)),
+      8,
+      48
+    );
+    const regionSeed = (seed ^ 0x9e3779b9) >>> 0;
+    const regionRng = mulberry32(regionSeed);
+    const regions: BiomeRegion[] = [];
+    const candidateTries = 12;
+
+    for (let i = 0; i < targetRegions; i += 1) {
+      let bestCandidate: Vec2 | undefined;
+      let bestScore = -Infinity;
+
+      for (let attempt = 0; attempt < candidateTries; attempt += 1) {
+        const candidate: Vec2 = {
+          x: Math.floor(regionRng() * this.size),
+          y: Math.floor(regionRng() * this.size),
+        };
+        let minDist = this.size;
+        if (regions.length > 0) {
+          regions.forEach((region) => {
+            const distance = Math.hypot(candidate.x - region.x, candidate.y - region.y);
+            if (distance < minDist) {
+              minDist = distance;
+            }
+          });
+        }
+        const coastalBuffer = Math.min(
+          candidate.x,
+          candidate.y,
+          this.size - 1 - candidate.x,
+          this.size - 1 - candidate.y
+        );
+        const coastalWeight = coastalBuffer < this.size * 0.08 ? 0.85 : 1;
+        const score = minDist * coastalWeight;
+        if (score > bestScore || !bestCandidate) {
+          bestScore = score;
+          bestCandidate = candidate;
+        }
+      }
+
+      const selected = bestCandidate ?? {
+        x: Math.floor(regionRng() * this.size),
+        y: Math.floor(regionRng() * this.size),
+      };
+      const baseElevation = elevationMap[selected.y]?.[selected.x] ?? 0.5;
+      const baseMoisture = moistureMap[selected.y]?.[selected.x] ?? 0.5;
+      const biome = this.determineBiome(baseElevation, baseMoisture);
+
+      regions.push({
+        id: i,
+        x: selected.x,
+        y: selected.y,
+        biome,
+        elevation: baseElevation,
+        moisture: baseMoisture,
+        spread: this.getBiomeSpread(biome),
+      });
+    }
+
+    const regionMap = Array.from({ length: this.size }, () => Array.from({ length: this.size }, () => 0));
+    const jitterOctaves = [
+      { freq: 0.5, amp: 1 },
+      { freq: 1, amp: 0.5 },
+      { freq: 2, amp: 0.25 },
+    ];
+
+    for (let y = 0; y < this.size; y += 1) {
+      const row = regionMap[y];
+      if (!row) continue;
+      for (let x = 0; x < this.size; x += 1) {
+        const elevation = elevationMap[y]?.[x] ?? 0.5;
+        const moisture = moistureMap[y]?.[x] ?? 0.5;
+        let bestScore = Infinity;
+        let bestRegion = 0;
+
+        regions.forEach((region) => {
+          const dx = x - region.x;
+          const dy = y - region.y;
+          const distance = Math.hypot(dx, dy);
+          const jitter = this.multiOctaveNoise(
+            x + region.x * 0.31,
+            y + region.y * 0.27,
+            seed + region.id * 997,
+            jitterOctaves
+          );
+          const warpedDistance = distance * (0.75 + jitter * 0.5) * region.spread;
+          const climateDiff =
+            Math.abs(elevation - region.elevation) * 90 +
+            Math.abs(moisture - region.moisture) * 70;
+          const score = warpedDistance + climateDiff;
+          if (score < bestScore) {
+            bestScore = score;
+            bestRegion = region.id;
+          }
+        });
+
+        row[x] = bestRegion;
+      }
+    }
+
+    this.smoothBiomeRegions(regionMap, 2);
+    return { map: regionMap, regions };
+  }
+
+  private smoothBiomeRegions(regionMap: number[][], iterations: number) {
+    for (let iteration = 0; iteration < iterations; iteration += 1) {
+      const snapshot = regionMap.map((row) => [...row]);
+      for (let y = 1; y < this.size - 1; y += 1) {
+        for (let x = 1; x < this.size - 1; x += 1) {
+          const snapshotRow = snapshot[y];
+          if (!snapshotRow) continue;
+          const current = snapshotRow[x];
+          if (current === undefined) continue;
+          const counts = new Map<number, number>();
+
+          for (let dy = -1; dy <= 1; dy += 1) {
+            for (let dx = -1; dx <= 1; dx += 1) {
+              const id = snapshot[y + dy]?.[x + dx];
+              if (id === undefined) continue;
+              counts.set(id, (counts.get(id) ?? 0) + 1);
+            }
+          }
+
+          const dominant = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+          if (dominant && dominant[1] >= 5 && dominant[0] !== current) {
+            const row = regionMap[y];
+            if (!row) continue;
+            row[x] = dominant[0];
+          }
+        }
+      }
+    }
+  }
+
+  private getBiomeSpread(biome: Terrain): number {
+    switch (biome) {
+      case "ocean":
+        return 0.65;
+      case "beach":
+        return 1.05;
+      case "mountain":
+      case "snow":
+        return 1.25;
+      case "swamp":
+        return 0.95;
+      default:
+        return 1;
+    }
+  }
+
+  private resolveRegionTerrain(
+    regionBiome: Terrain,
+    localBiome: Terrain,
+    elevation: number,
+    moisture: number
+  ): Terrain {
+    if (regionBiome === localBiome) {
+      return localBiome;
+    }
+    if (regionBiome === "ocean" || regionBiome === "beach") {
+      return regionBiome;
+    }
+    if (regionBiome === "snow") {
+      return elevation > 0.7 ? "snow" : "tundra";
+    }
+    if (regionBiome === "mountain" && elevation < 0.55) {
+      return localBiome;
+    }
+    if (regionBiome === "desert" && moisture > 0.55) {
+      return localBiome;
+    }
+    if (regionBiome === "swamp" && moisture < 0.45) {
+      return localBiome;
+    }
+    if (regionBiome === "tundra" && elevation < 0.4) {
+      return "grassland";
+    }
+    return regionBiome;
+  }
+
+  private applyExtremeElevationBias(terrain: Terrain, elevation: number, moisture: number): Terrain {
+    if (terrain !== "river") {
+      if (elevation < 0.04) {
+        return "ocean";
+      }
+      if (elevation < 0.12 && terrain !== "ocean") {
+        return "beach";
+      }
+      if (elevation > 0.9) {
+        return moisture > 0.4 ? "snow" : "mountain";
+      }
+      if (elevation > 0.78 && terrain !== "snow" && terrain !== "mountain") {
+        return moisture > 0.55 ? "snow" : "mountain";
+      }
+    }
+    if (terrain === "desert" && moisture > 0.65) {
+      return "grassland";
+    }
+    if (terrain === "grassland" && moisture > 0.75) {
+      return "forest";
+    }
+    return terrain;
   }
 
   private generateResource(terrain: Terrain, x: number, y: number): ResourceNode | undefined {
@@ -287,7 +523,7 @@ export class WorldEngine {
         }
         
         const moisture = moistureMap[y]?.[x] ?? 0;
-        if (isPeak && moisture > 0.3) {
+        if (isPeak && moisture > 0.34) {
           peaks.push({ x, y });
         }
       }
@@ -354,7 +590,7 @@ export class WorldEngine {
           riverCells.add(`${pos.x},${pos.y}`);
           // Añadir celdas adyacentes para ríos más anchos en elevaciones bajas
           const posElev = elevationMap[pos.y]?.[pos.x];
-          if (posElev !== undefined && posElev < 0.4) {
+          if (posElev !== undefined && posElev < 0.38) {
             riverCells.add(`${pos.x + 1},${pos.y}`);
             riverCells.add(`${pos.x},${pos.y + 1}`);
           }

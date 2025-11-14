@@ -1,3 +1,6 @@
+import type { Terrain } from "../core/types";
+import { WorldEngine } from "../core/world/WorldEngine";
+
 export interface WorldGenerationConfig {
   seed: number;
   worldSize: number;
@@ -21,6 +24,10 @@ export class MainMenu {
   private hoveredButton: string | null = null;
   private focusedInput: string | null = null;
   private seedInputValue: string = "";
+  private previewWorld: WorldEngine | null = null;
+  private previewDirty = true;
+  private lastPreviewUpdate = 0;
+  private readonly previewThrottleMs = 220;
   
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -30,6 +37,7 @@ export class MainMenu {
     this.seedInputValue = this.config.seed.toString();
     
     this.setupEventListeners();
+    this.requestPreviewUpdate();
   }
   
   private setupEventListeners() {
@@ -57,6 +65,7 @@ export class MainMenu {
     const parsed = parseInt(this.seedInputValue) || Math.floor(Math.random() * 1000000);
     this.config.seed = parsed;
     this.seedInputValue = parsed.toString();
+    this.requestPreviewUpdate();
   }
   
   private handleMouseMove(e: MouseEvent) {
@@ -86,6 +95,7 @@ export class MainMenu {
         this.config.seed = Math.floor(Math.random() * 1000000);
         this.seedInputValue = this.config.seed.toString();
         this.focusedInput = null;
+        this.requestPreviewUpdate();
         break;
       
       case "seedInput":
@@ -94,14 +104,17 @@ export class MainMenu {
       
       case "sizeSmall":
         this.config.worldSize = 80;
+        this.requestPreviewUpdate();
         break;
       
       case "sizeNormal":
         this.config.worldSize = 120;
+        this.requestPreviewUpdate();
         break;
       
       case "sizeLarge":
         this.config.worldSize = 160;
+        this.requestPreviewUpdate();
         break;
       
       case "difficultyEasy":
@@ -294,6 +307,9 @@ export class MainMenu {
     this.renderDifficultyButtons(difficultyOptions, currentY);
     
     currentY += 90;
+
+    this.renderWorldPreview(panelX + 20, currentY, panelWidth - 40, 160);
+    currentY += 180;
     
     // ===== INFORMACIÓN =====
     ctx.fillStyle = "rgba(59, 130, 246, 0.15)";
@@ -353,6 +369,110 @@ export class MainMenu {
     ctx.fillStyle = "#64748b";
     ctx.font = "12px Arial";
     ctx.fillText("Presiona ESC durante el juego para pausar", centerX, this.canvas.height - 30);
+  }
+
+  private renderWorldPreview(x: number, y: number, width: number, height: number): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.4)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y, width, height);
+
+    ctx.fillStyle = "#e9cc98";
+    ctx.font = "bold 15px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText("🧭 Vista previa del mundo", x + 12, y + 24);
+
+    ctx.font = "12px Arial";
+    ctx.fillStyle = "#cbd5e1";
+    ctx.fillText(`Semilla ${this.config.seed} • ${this.config.worldSize}x${this.config.worldSize}`, x + 12, y + 42);
+
+    const previewWorld = this.ensurePreviewWorld();
+    const gridTopOffset = 50;
+    const availableWidth = width - 40;
+    const availableHeight = height - gridTopOffset - 20;
+
+    if (!previewWorld) {
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "13px Arial";
+      ctx.fillText("Generando vista previa...", x + 12, y + gridTopOffset + 30);
+      return;
+    }
+
+    const gridSize = previewWorld.size;
+    const cellSize = Math.max(1, Math.min(availableWidth / gridSize, availableHeight / gridSize));
+    const gridWidth = cellSize * gridSize;
+    const gridHeight = cellSize * gridSize;
+    const gridX = x + (width - gridWidth) / 2;
+    const gridY = y + gridTopOffset + (availableHeight - gridHeight) / 2;
+
+    previewWorld.cells.forEach((row) =>
+      row.forEach((cell) => {
+        ctx.fillStyle = this.getPreviewTerrainColor(cell.terrain);
+        ctx.fillRect(gridX + cell.x * cellSize, gridY + cell.y * cellSize, cellSize, cellSize);
+      }),
+    );
+
+    ctx.strokeStyle = "#f97316";
+    ctx.lineWidth = Math.max(1, cellSize * 0.18);
+    ctx.strokeRect(
+      gridX + previewWorld.villageCenter.x * cellSize,
+      gridY + previewWorld.villageCenter.y * cellSize,
+      cellSize,
+      cellSize,
+    );
+
+    ctx.fillStyle = "rgba(15, 23, 42, 0.6)";
+    ctx.fillRect(x + 10, y + height - 26, width - 20, 18);
+    ctx.font = "11px Arial";
+    ctx.fillStyle = "#93c5fd";
+    ctx.fillText("Cambia semilla o tamaño para regenerar la vista previa.", x + 15, y + height - 13);
+  }
+
+  private getPreviewTerrainColor(terrain: Terrain): string {
+    switch (terrain) {
+      case "ocean":
+        return "#0a2540";
+      case "beach":
+        return "#c2b280";
+      case "grassland":
+        return "#2d5016";
+      case "forest":
+        return "#1a3d0f";
+      case "desert":
+        return "#9b7e46";
+      case "tundra":
+        return "#6b7b8c";
+      case "snow":
+        return "#e8e8e8";
+      case "mountain":
+        return "#4b4f5d";
+      case "swamp":
+        return "#3d4f2f";
+      case "river":
+        return "#1e4d7b";
+      default:
+        return "#111";
+    }
+  }
+
+  private requestPreviewUpdate(): void {
+    this.previewDirty = true;
+  }
+
+  private ensurePreviewWorld(): WorldEngine | null {
+    if (!this.previewDirty) {
+      return this.previewWorld;
+    }
+    const now = performance.now();
+    if (now - this.lastPreviewUpdate < this.previewThrottleMs) {
+      return this.previewWorld;
+    }
+    this.previewWorld = new WorldEngine(this.config.worldSize, this.config.seed);
+    this.lastPreviewUpdate = now;
+    this.previewDirty = false;
+    return this.previewWorld;
   }
   
   private renderOptionButtons(
