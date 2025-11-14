@@ -252,7 +252,8 @@ export class CitizenSystem {
     if (citizen.hunger > 90) {
       const foodAvailable = this.world.stockpile.food > 0 || citizen.carrying.food > 0;
       if (foodAvailable) {
-        return { type: "move", x: view.villageCenter?.x ?? citizen.x, y: view.villageCenter?.y ?? citizen.y };
+        this.tryEatFromStockpile(citizen);
+        return { type: "idle" };
       }
       return null;
     }
@@ -322,15 +323,16 @@ export class CitizenSystem {
     if (!cell || !cell.resource || cell.resource.type !== type) return;
     const amount = clamp(cell.resource.amount, 0, 3);
     if (amount <= 0) return;
-    const gatherAmount = type === "food" && citizen.role === "farmer" ? 1.1 : 1;
-    cell.resource.amount = clamp(cell.resource.amount - gatherAmount, 0, 10);
+    const efficiency = type === "food" && citizen.role === "farmer" ? 1.1 : 1;
+    const gathered = Math.min(1, cell.resource.amount);
+    cell.resource.amount = clamp(cell.resource.amount - gathered, 0, 10);
     if (type === "food") {
-      citizen.carrying.food += gatherAmount;
+      citizen.carrying.food += Math.floor(gathered * efficiency);
       if (cell.cropProgress >= 1) {
         cell.cropProgress = 0;
       }
     } else if (type === "stone") {
-      citizen.carrying.stone += 1;
+      citizen.carrying.stone += gathered;
     }
     // Depositing now happens via the gatherer brain's state machine.
   }
@@ -343,15 +345,20 @@ export class CitizenSystem {
       this.moveCitizenTowards(citizen, target.x, target.y);
       return;
     }
+    let deposited = false;
     if (citizen.carrying.food > 0) {
       const stored = this.world.deposit("food", citizen.carrying.food);
       citizen.carrying.food -= stored;
+      deposited = stored > 0;
     }
     if (citizen.carrying.stone > 0) {
       const stored = this.world.deposit("stone", citizen.carrying.stone);
       citizen.carrying.stone -= stored;
+      deposited = deposited || stored > 0;
     }
-    citizen.morale = clamp(citizen.morale + 4, 0, 100);
+    if (deposited) {
+      citizen.morale = clamp(citizen.morale + 4, 0, 100);
+    }
   }
 
   private handleAttack(attacker: Citizen, targetId: number) {
@@ -530,7 +537,11 @@ const warriorAI: CitizenAI = (citizen, view) => {
   if (view.threats.length > 0) {
     const target = view.threats[0];
     if (target) {
-      return { type: "attack", targetId: target.id };
+      const distance = Math.abs(citizen.x - target.x) + Math.abs(citizen.y - target.y);
+      if (distance <= 1) {
+        return { type: "attack", targetId: target.id };
+      }
+      return { type: "move", x: target.x, y: target.y };
     }
   }
 
@@ -622,6 +633,19 @@ const runGathererBrain = (citizen: Citizen, view: WorldView, resourceType: "food
         brain.target = findStorageTarget(citizen, view);
         return { type: "move", x: brain.target.x, y: brain.target.y };
       }
+      
+      // Hysteresis: Si ya tenemos un target cercano válido, continuar con él
+      if (brain.target) {
+        const distanceToTarget = Math.abs(citizen.x - brain.target.x) + Math.abs(citizen.y - brain.target.y);
+        if (distanceToTarget <= 3) {
+          const targetCell = view.cells.find(c => c.x === brain.target!.x && c.y === brain.target!.y);
+          if (targetCell?.resource?.type === resourceType && (targetCell.resource.amount ?? 0) > 0) {
+            brain.phase = "goingToResource";
+            return { type: "move", x: brain.target.x, y: brain.target.y };
+          }
+        }
+      }
+      
       const targetCell = findClosestResourceCell(citizen, view, resourceType);
       if (!targetCell) {
         brain.target = null;
@@ -666,43 +690,77 @@ const runGathererBrain = (citizen: Citizen, view: WorldView, resourceType: "food
       if (!brain.target) {
         brain.target = findStorageTarget(citizen, view);
       }
-      if (citizen.x === brain.target.x && citizen.y === brain.target.y) {
+      const atStorage = citizen.x === brain.target.x && citizen.y === brain.target.y;
+      if (atStorage) {
         brain.phase = "depositing";
         return { type: "storeResources" };
       }
       return { type: "move", x: brain.target.x, y: brain.target.y };
     }
     case "depositing": {
-      if (!isInventoryFull(citizen, resourceType)) {
-        brain.phase = "idle";
-        brain.target = null;
-        return { type: "idle" };
+      const hasResources = (resourceType === "food" && citizen.carrying.food > 0) || (resourceType === "stone" && citizen.carrying.stone > 0);
+      if (hasResources) {
+        return { type: "storeResources" };
       }
-      return { type: "storeResources" };
+      brain.phase = "idle";
+      brain.target = null;
+      return { type: "idle" };
+    }
+    default: {
+      brain.phase = "idle";
+      brain.target = null;
+      return { type: "idle" };
     }
   }
 };
 
 const farmerAI: CitizenAI = (citizen, view) => {
-  // Prioridad 1: Recoger cultivos maduros cercanos primero
-  const matureCrop = view.cells.find(
-    (cell) => cell.cropReady && cell.resource?.type === "food" && (cell.resource.amount ?? 0) > 0
-  );
-  if (matureCrop && !isInventoryFull(citizen, "food")) {
-    if (citizen.x === matureCrop.x && citizen.y === matureCrop.y) {
-      return { type: "gather", resourceType: "food" };
-    }
-    return { type: "move", x: matureCrop.x, y: matureCrop.y };
+  const brain = ensureGathererBrain(citizen, "food");
+  
+  // Prioridad 1: Si ya está en proceso de depositar o recolectar, continuar sin interrupciones
+  if (brain.phase === "goingToStorage" || brain.phase === "depositing" || brain.phase === "gathering" || brain.phase === "goingToResource") {
+    return runGathererBrain(citizen, view, "food");
   }
-
-  // Prioridad 2: Si el inventario está lleno, depositar
-  if (isInventoryFull(citizen, "food") && citizen.carrying.food > 0) {
+  
+  // Prioridad 2: Si el inventario está lleno, forzar a depositar
+  if (isInventoryFull(citizen, "food")) {
+    brain.phase = "goingToStorage";
+    brain.target = findStorageTarget(citizen, view);
     return runGathererBrain(citizen, view, "food");
   }
 
-  // Prioridad 3: Cultivar celdas marcadas como farm
+  // Hysteresis para cultivo: Si ya está cultivando cerca, continuar
+  const currentCell = view.cells.find(c => c.x === citizen.x && c.y === citizen.y);
+  if (currentCell?.priority === "farm" && (currentCell.terrain === "grassland" || currentCell.terrain === "forest") && !currentCell.cropReady) {
+    return { type: "tendCrops", x: citizen.x, y: citizen.y };
+  }
+  
+  const nearbyFarmCell = view.cells.find(
+    (cell) => cell.priority === "farm" && (cell.terrain === "grassland" || cell.terrain === "forest") && !cell.cropReady &&
+              Math.abs(cell.x - citizen.x) + Math.abs(cell.y - citizen.y) <= 2
+  );
+  if (nearbyFarmCell) {
+    if (citizen.x === nearbyFarmCell.x && citizen.y === nearbyFarmCell.y) {
+      return { type: "tendCrops", x: nearbyFarmCell.x, y: nearbyFarmCell.y };
+    }
+    return { type: "move", x: nearbyFarmCell.x, y: nearbyFarmCell.y };
+  }
+
+  // Prioridad 3: Recoger cultivos maduros cercanos (solo si el inventario no está casi lleno)
+  if (citizen.carrying.food < MAX_FOOD_CARRY - 1) {
+    const matureCrop = view.cells.find(
+      (cell) => cell.cropReady && cell.resource?.type === "food" && (cell.resource.amount ?? 0) > 0
+    );
+    if (matureCrop) {
+      brain.phase = "goingToResource";
+      brain.target = { x: matureCrop.x, y: matureCrop.y };
+      return runGathererBrain(citizen, view, "food");
+    }
+  }
+
+  // Prioridad 4: Cultivar celdas marcadas como farm
   const farmCell = view.cells.find(
-    (cell) => cell.priority === "farm" && cell.terrain === "grass" && !cell.cropReady
+    (cell) => cell.priority === "farm" && (cell.terrain === "grassland" || cell.terrain === "forest") && !cell.cropReady
   );
   if (farmCell) {
     if (citizen.x === farmCell.x && citizen.y === farmCell.y) {
@@ -711,7 +769,7 @@ const farmerAI: CitizenAI = (citizen, view) => {
     return { type: "move", x: farmCell.x, y: farmCell.y };
   }
 
-  // Prioridad 4: Recolectar comida natural si no hay cultivos para tender
+  // Prioridad 5: Recolectar comida natural usando gatherer brain
   return runGathererBrain(citizen, view, "food");
 };
 

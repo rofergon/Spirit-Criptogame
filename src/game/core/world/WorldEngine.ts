@@ -41,13 +41,58 @@ export class WorldEngine {
 
   private generateTerrain(seed: number) {
     const rows: WorldCell[][] = [];
+    
+    // Paso 1: Generar mapas de elevación y humedad con múltiples octavas
+    const elevationMap: number[][] = [];
+    const moistureMap: number[][] = [];
+    
+    for (let y = 0; y < this.size; y += 1) {
+      elevationMap[y] = [];
+      moistureMap[y] = [];
+      for (let x = 0; x < this.size; x += 1) {
+        // Múltiples octavas para elevación (más detalle)
+        let elevation = this.multiOctaveNoise(x, y, seed, [
+          { freq: 1, amp: 1.0 },
+          { freq: 2, amp: 0.5 },
+          { freq: 4, amp: 0.25 },
+          { freq: 8, amp: 0.13 },
+          { freq: 16, amp: 0.06 }
+        ]);
+        
+        // Redistribución para crear valles planos y montañas pronunciadas
+        elevation = Math.pow(elevation, 2.5);
+        elevationMap[y]![x] = elevation;
+        
+        // Múltiples octavas para humedad (diferentes frecuencias)
+        const moisture = this.multiOctaveNoise(x + 1000, y + 1000, seed + 999, [
+          { freq: 1, amp: 1.0 },
+          { freq: 2, amp: 0.75 },
+          { freq: 4, amp: 0.33 },
+          { freq: 8, amp: 0.33 }
+        ]);
+        moistureMap[y]![x] = moisture;
+      }
+    }
+    
+    // Paso 2: Generar ríos desde picos de montañas
+    const rivers = this.generateRivers(elevationMap, moistureMap);
+    
+    // Paso 3: Crear celdas con biomas basados en elevación y humedad
     for (let y = 0; y < this.size; y += 1) {
       const row: WorldCell[] = [];
       for (let x = 0; x < this.size; x += 1) {
-        const height = this.fractalNoise(x, y, seed);
-        const moisture = this.fractalNoise(x + 1000, y + 1000, seed);
-        const terrain: Terrain = this.pickTerrain(height, moisture);
-        const fertility = terrain === "grass" ? clamp(moisture + 0.2, 0, 1) : terrain === "desert" ? 0.2 : 0.05;
+        const elevation = elevationMap[y]?.[x] ?? 0.5;
+        const moisture = moistureMap[y]?.[x] ?? 0.5;
+        
+        // Determinar bioma basado en sistema de Whittaker
+        let terrain: Terrain = this.determineBiome(elevation, moisture);
+        
+        // Sobrescribir con río si existe
+        if (rivers.has(`${x},${y}`)) {
+          terrain = "river";
+        }
+        
+        const fertility = this.calculateFertility(terrain, moisture);
         const resource = this.generateResource(terrain, x, y);
 
         const cell: WorldCell = {
@@ -72,49 +117,281 @@ export class WorldEngine {
     return rows;
   }
 
-  private fractalNoise(x: number, y: number, seed: number) {
+  private multiOctaveNoise(
+    x: number,
+    y: number,
+    seed: number,
+    octaves: Array<{ freq: number; amp: number }>
+  ): number {
     let total = 0;
-    let amplitude = 1;
-    let frequency = 0.05;
-    for (let i = 0; i < 3; i += 1) {
-      total += hashNoise(x * frequency, y * frequency, seed + i * 1000) * amplitude;
-      amplitude *= 0.5;
-      frequency *= 2;
-    }
-    return clamp(total, 0, 1);
+    let totalAmplitude = 0;
+    const baseFrequency = 0.02; // Frecuencia base más baja para características más grandes
+    
+    octaves.forEach((octave, i) => {
+      const frequency = baseFrequency * octave.freq;
+      // Usar offsets diferentes para cada octava para evitar correlación
+      const offsetX = i * 73.129;
+      const offsetY = i * 41.538;
+      total += hashNoise(
+        (x + offsetX) * frequency,
+        (y + offsetY) * frequency,
+        seed + i * 1000
+      ) * octave.amp;
+      totalAmplitude += octave.amp;
+    });
+    
+    // Normalizar al rango [0, 1]
+    return clamp(total / totalAmplitude, 0, 1);
   }
 
-  private pickTerrain(height: number, moisture: number): Terrain {
-    if (height < 0.35) return "water";
-    if (height > 0.8) return "mountain";
-    if (moisture < 0.3) return "desert";
-    return "grass";
+  private determineBiome(elevation: number, moisture: number): Terrain {
+    // Sistema de biomas inspirado en el diagrama de Whittaker
+    // Basado en elevación (temperatura) y humedad
+    
+    // Océanos y costas
+    if (elevation < 0.1) return "ocean";
+    if (elevation < 0.15) return "beach";
+    
+    // Montañas altas (frío)
+    if (elevation > 0.8) {
+      if (moisture < 0.1) return "mountain"; // Montaña árida
+      if (moisture < 0.3) return "tundra";
+      return "snow"; // Picos nevados
+    }
+    
+    // Tierras medias-altas
+    if (elevation > 0.6) {
+      if (moisture < 0.25) return "desert";
+      if (moisture < 0.5) return "grassland";
+      if (moisture < 0.75) return "forest";
+      return "tundra"; // Bosque frío
+    }
+    
+    // Tierras medias
+    if (elevation > 0.3) {
+      if (moisture < 0.2) return "desert";
+      if (moisture < 0.4) return "grassland";
+      if (moisture < 0.7) return "forest";
+      return "swamp"; // Muy húmedo = pantano
+    }
+    
+    // Tierras bajas
+    if (moisture < 0.2) return "desert"; // Desierto costero
+    if (moisture < 0.4) return "grassland";
+    if (moisture < 0.7) return "forest";
+    return "swamp"; // Pantano costero
   }
 
   private generateResource(terrain: Terrain, x: number, y: number): ResourceNode | undefined {
     const roll = this.rng();
-    if (terrain === "grass" && roll > 0.7) {
-      return { type: "food", amount: 2 + Math.floor(roll * 4), renewable: true, richness: 1 };
+    
+    switch (terrain) {
+      case "grassland":
+        if (roll > 0.65) {
+          return { type: "food", amount: 3 + Math.floor(roll * 4), renewable: true, richness: 1 };
+        }
+        break;
+      
+      case "forest":
+        if (roll > 0.5) {
+          return { type: "food", amount: 4 + Math.floor(roll * 6), renewable: true, richness: 1.2 };
+        }
+        break;
+      
+      case "swamp":
+        if (roll > 0.7) {
+          return { type: "food", amount: 2 + Math.floor(roll * 3), renewable: true, richness: 0.8 };
+        }
+        break;
+      
+      case "mountain":
+        if (roll > 0.5) {
+          return { type: "stone", amount: 5 + Math.floor(roll * 8), renewable: false, richness: 1.3 };
+        }
+        break;
+      
+      case "tundra":
+        if (roll > 0.8) {
+          return { type: "stone", amount: 3 + Math.floor(roll * 4), renewable: false, richness: 0.8 };
+        }
+        break;
+      
+      case "desert":
+        if (roll > 0.9) {
+          return { type: "stone", amount: 2, renewable: false, richness: 0.4 };
+        }
+        break;
+      
+      case "river":
+      case "ocean":
+        if (roll > 0.6) {
+          return { type: "waterSpring", amount: 6, renewable: true, richness: 1.5 };
+        }
+        break;
     }
-    if (terrain === "mountain" && roll > 0.55) {
-      return { type: "stone", amount: 4 + Math.floor(roll * 6), renewable: false, richness: 1 };
-    }
-    if (terrain === "water" && roll > 0.65) {
-      return { type: "waterSpring", amount: 5, renewable: true, richness: 1 };
-    }
-    if (terrain === "desert" && roll > 0.85) {
-      return { type: "stone", amount: 2, renewable: false, richness: 0.4 };
-    }
+    
     return undefined;
   }
 
+  private calculateFertility(terrain: Terrain, moisture: number): number {
+    switch (terrain) {
+      case "grassland":
+        return clamp(0.7 + moisture * 0.3, 0, 1);
+      case "forest":
+        return clamp(0.6 + moisture * 0.4, 0, 1);
+      case "swamp":
+        return clamp(0.5 + moisture * 0.2, 0, 1);
+      case "desert":
+        return 0.1;
+      case "beach":
+        return 0.3;
+      case "tundra":
+        return 0.2;
+      case "snow":
+      case "mountain":
+        return 0.05;
+      case "river":
+        return 0.8;
+      case "ocean":
+        return 0.0;
+      default:
+        return 0.1;
+    }
+  }
+  
+  private generateRivers(elevationMap: number[][], moistureMap: number[][]): Set<string> {
+    const riverCells = new Set<string>();
+    
+    // Encontrar picos de montañas para colocar fuentes de ríos
+    const peaks: Vec2[] = [];
+    for (let y = 2; y < this.size - 2; y += 1) {
+      for (let x = 2; x < this.size - 2; x += 1) {
+        const elevation = elevationMap[y]?.[x];
+        if (elevation === undefined) continue;
+        
+        // Solo montañas altas
+        if (elevation < 0.7) continue;
+        
+        // Verificar si es un máximo local
+        let isPeak = true;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const neighborElev = elevationMap[y + dy]?.[x + dx];
+            if (neighborElev !== undefined && neighborElev > elevation) {
+              isPeak = false;
+              break;
+            }
+          }
+          if (!isPeak) break;
+        }
+        
+        const moisture = moistureMap[y]?.[x] ?? 0;
+        if (isPeak && moisture > 0.3) {
+          peaks.push({ x, y });
+        }
+      }
+    }
+    
+    // Generar ríos desde cada pico
+    for (const peak of peaks) {
+      let current = { ...peak };
+      let waterVolume = 1.0;
+      const visitedCells = new Set<string>();
+      const riverPath: Vec2[] = [];
+      
+      // Seguir el río cuesta abajo
+      for (let steps = 0; steps < 100; steps++) {
+        const key = `${current.x},${current.y}`;
+        
+        // Evitar bucles
+        if (visitedCells.has(key)) break;
+        visitedCells.add(key);
+        riverPath.push({ ...current });
+        
+        const currentElevation = elevationMap[current.y]?.[current.x];
+        if (currentElevation === undefined) break;
+        
+        // Si llegamos al océano, terminar
+        if (currentElevation < 0.15) {
+          break;
+        }
+        
+        // Encontrar el vecino más bajo
+        let lowest: Vec2 | null = null;
+        let lowestElevation = currentElevation;
+        
+        const neighbors = [
+          { x: current.x - 1, y: current.y },
+          { x: current.x + 1, y: current.y },
+          { x: current.x, y: current.y - 1 },
+          { x: current.x, y: current.y + 1 },
+        ];
+        
+        for (const neighbor of neighbors) {
+          const neighborElevation = elevationMap[neighbor.y]?.[neighbor.x];
+          if (neighborElevation !== undefined && neighborElevation < lowestElevation) {
+            lowestElevation = neighborElevation;
+            lowest = neighbor;
+          }
+        }
+        
+        // Si no hay pendiente, crear lago/terminar
+        if (!lowest || lowestElevation >= currentElevation * 0.98) {
+          break;
+        }
+        
+        // El agua se evapora gradualmente
+        waterVolume *= 0.95;
+        if (waterVolume < 0.1) break;
+        
+        current = lowest;
+      }
+      
+      // Solo añadir ríos que sean lo suficientemente largos
+      if (riverPath.length >= 5) {
+        riverPath.forEach(pos => {
+          riverCells.add(`${pos.x},${pos.y}`);
+          // Añadir celdas adyacentes para ríos más anchos en elevaciones bajas
+          const posElev = elevationMap[pos.y]?.[pos.x];
+          if (posElev !== undefined && posElev < 0.4) {
+            riverCells.add(`${pos.x + 1},${pos.y}`);
+            riverCells.add(`${pos.x},${pos.y + 1}`);
+          }
+        });
+      }
+    }
+    
+    return riverCells;
+  }
+  
   private placeVillageCenter(): Vec2 {
     let best = { x: Math.floor(this.size / 2), y: Math.floor(this.size / 2), score: -Infinity };
+    const goodTerrains: Terrain[] = ["grassland", "forest", "beach"];
+    
     for (let y = 8; y < this.size - 8; y += 1) {
       for (let x = 8; x < this.size - 8; x += 1) {
         const cell = this.cells[y]?.[x];
-        if (!cell || cell.terrain !== "grass") continue;
-        const score = cell.fertility + cell.moisture - Math.abs(x - this.size / 2) * 0.01 - Math.abs(y - this.size / 2) * 0.01;
+        if (!cell || !goodTerrains.includes(cell.terrain)) continue;
+        
+        // Preferir áreas cerca de ríos pero no en ellos
+        let nearRiver = 0;
+        for (let dy = -3; dy <= 3; dy++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            const neighbor = this.cells[y + dy]?.[x + dx];
+            if (neighbor?.terrain === "river") {
+              nearRiver += 1;
+            }
+          }
+        }
+        
+        const score = 
+          cell.fertility * 2 + 
+          cell.moisture + 
+          Math.min(nearRiver * 0.5, 2) -
+          Math.abs(x - this.size / 2) * 0.01 - 
+          Math.abs(y - this.size / 2) * 0.01;
+          
         if (score > best.score) {
           best = { x, y, score };
         }
@@ -144,8 +421,12 @@ export class WorldEngine {
   isWalkable(x: number, y: number) {
     const cell = this.cells[y]?.[x];
     if (!cell) return false;
-    if (cell.terrain === "water") return false;
-    if (cell.terrain === "mountain") return false;
+    
+    // Terrenos no caminables
+    const unwalkable: Terrain[] = ["ocean", "mountain", "snow"];
+    if (unwalkable.includes(cell.terrain)) return false;
+    
+    // Los ríos son caminables pero lentos
     return true;
   }
 
@@ -241,22 +522,36 @@ export class WorldEngine {
   }
 
   updateEnvironment(climate: ClimateState, tickHours: number) {
+    const fertileTerrains: Terrain[] = ["grassland", "forest", "swamp", "river"];
+    
     this.cells.forEach((row) => {
       row.forEach((cell) => {
-        if (cell.terrain === "grass") {
-          cell.moisture = clamp(cell.moisture + (climate.rainy ? 0.02 : climate.drought ? -0.03 : -0.005), 0, 1);
+        // Actualizar humedad según clima
+        if (fertileTerrains.includes(cell.terrain)) {
+          cell.moisture = clamp(
+            cell.moisture + (climate.rainy ? 0.02 : climate.drought ? -0.03 : -0.005),
+            0,
+            1
+          );
+          
+          // Regeneración de recursos en biomas fértiles
           if (!cell.resource && Math.random() < cell.fertility * 0.001) {
             cell.resource = { type: "food", amount: 2, renewable: true, richness: cell.fertility };
           }
         }
 
+        // Crecimiento de recursos renovables
         if (cell.resource?.type === "food" && cell.resource.renewable) {
-          const growth = (cell.fertility + (climate.rainy ? 0.5 : 0) - (climate.drought ? 0.8 : 0)) * 0.02;
-          cell.resource.amount = clamp(cell.resource.amount + growth * tickHours, 0, 6);
+          const climateModifier = (climate.rainy ? 0.5 : 0) - (climate.drought ? 0.8 : 0);
+          const growth = (cell.fertility + climateModifier) * 0.02;
+          const maxAmount = cell.terrain === "forest" ? 8 : 6;
+          cell.resource.amount = clamp(cell.resource.amount + growth * tickHours, 0, maxAmount);
         }
 
+        // Crecimiento de cultivos
         if (cell.cropProgress > 0) {
-          cell.cropProgress = clamp(cell.cropProgress + cell.fertility * 0.05 * tickHours, 0, 1.5);
+          const cropGrowth = cell.fertility * 0.05 * tickHours;
+          cell.cropProgress = clamp(cell.cropProgress + cropGrowth, 0, 1.5);
         }
       });
     });

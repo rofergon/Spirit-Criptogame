@@ -1,6 +1,16 @@
 export type Vec2 = { x: number; y: number };
 
-export type Terrain = "grass" | "desert" | "mountain" | "water";
+export type Terrain = 
+  | "ocean"
+  | "beach"
+  | "grassland"
+  | "forest"
+  | "desert"
+  | "tundra"
+  | "snow"
+  | "mountain"
+  | "swamp"
+  | "river";
 export type ResourceType = "food" | "stone" | "waterSpring";
 export type StructureType = "village" | "granary" | "house" | "tower" | "temple" | "campfire";
 export type PriorityMark = "none" | "explore" | "defend" | "farm" | "mine";

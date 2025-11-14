@@ -104,14 +104,26 @@ export class GameRenderer {
 
   private getTerrainColor(cell: WorldCell) {
     switch (cell.terrain) {
-      case "grass":
-        return "#1b3f2f";
+      case "ocean":
+        return "#0a2540";
+      case "beach":
+        return "#c2b280";
+      case "grassland":
+        return "#2d5016";
+      case "forest":
+        return "#1a3d0f";
       case "desert":
-        return "#856a42";
+        return "#9b7e46";
+      case "tundra":
+        return "#6b7b8c";
+      case "snow":
+        return "#e8e8e8";
       case "mountain":
         return "#4b4f5d";
-      case "water":
-        return "#0a2540";
+      case "swamp":
+        return "#3d4f2f";
+      case "river":
+        return "#1e4d7b";
       default:
         return "#000";
     }

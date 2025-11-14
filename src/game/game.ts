@@ -8,6 +8,7 @@ import { CitizenSystem, type CitizenSystemEvent } from "./systems/CitizenSystem"
 import { HUDController, type HUDSnapshot } from "./ui/HUDController";
 import { CitizenPanelController } from "./ui/CitizenPanel";
 import { GameRenderer, type RenderState, type ViewMetrics } from "./ui/GameRenderer";
+import { MainMenu } from "./ui/MainMenu";
 
 type AssignableRole = Extract<Role, "farmer" | "worker" | "warrior" | "scout">;
 
@@ -17,8 +18,9 @@ export class Game {
   private accumulatedHours = 0;
 
   private readonly input = new InputHandler();
-  private readonly world = new WorldEngine();
-  private readonly player = new PlayerSpirit(WORLD_SIZE);
+  private mainMenu: MainMenu;
+  private world!: WorldEngine;
+  private player!: PlayerSpirit;
   private readonly renderer: GameRenderer;
   private readonly hud = new HUDController();
   private readonly citizenPanel = new CitizenPanelController({ onSelect: (id) => this.handleCitizenPanelSelection(id) });
@@ -32,6 +34,7 @@ export class Game {
   };
   private debugExportButton = document.querySelector<HTMLButtonElement>("#debug-export");
   private extinctionAnnounced = false;
+  private gameInitialized = false;
   private handleCitizenEvent = (event: CitizenSystemEvent) => {
     if (event.type === "log") {
       this.logEvent(event.message, event.notificationType);
@@ -40,7 +43,7 @@ export class Game {
       this.player.power = clamp(this.player.power + event.amount, 0, 120);
     }
   };
-  private readonly citizenSystem = new CitizenSystem(this.world, this.handleCitizenEvent);
+  private citizenSystem!: CitizenSystem;
 
   private currentDirection: Vec2 = { x: 0, y: 0 };
   private pendingMoveDirection: Vec2 | null = null;
@@ -59,7 +62,7 @@ export class Game {
   private zoom = 1;
   private readonly minZoom = 0.75;
   private readonly maxZoom = 2.5;
-  private readonly defaultCenter: Vec2 = { x: (WORLD_SIZE - 1) / 2, y: (WORLD_SIZE - 1) / 2 };
+  private defaultCenter: Vec2 = { x: (WORLD_SIZE - 1) / 2, y: (WORLD_SIZE - 1) / 2 };
   private viewTarget: Vec2 = { x: (WORLD_SIZE - 1) / 2, y: (WORLD_SIZE - 1) / 2 };
   private zoomInButton = document.querySelector<HTMLButtonElement>("#zoom-in");
   private zoomOutButton = document.querySelector<HTMLButtonElement>("#zoom-out");
@@ -68,12 +71,14 @@ export class Game {
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new GameRenderer(canvas);
-    this.world.citizenLookup = (id) => this.citizenSystem.getCitizenById(id);
-    this.viewTarget = { x: this.player.x + 0.5, y: this.player.y + 0.5 };
-    this.citizenSystem.init(["farmer", "farmer", "worker", "worker", "warrior", "warrior", "scout", "child", "child", "elder"], this.playerTribeId);
+    this.mainMenu = new MainMenu(canvas);
+    this.viewTarget = { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
 
     this.hud.setupHeaderButtons(this.handlePauseToggle);
-    this.hud.registerOverlayInstructions(() => this.start());
+    this.hud.hideOverlay(); // Ocultar el overlay inmediatamente
+    this.hud.updateStatus("🎮 Configura tu mundo y presiona COMENZAR");
+    this.hud.setPauseButtonState(false); // Mostrar botón como si estuviera pausado
+    
     this.setupZoomControls();
     this.setupRoleControls();
     this.bindCanvasEvents();
@@ -84,25 +89,86 @@ export class Game {
     window.addEventListener("mousemove", this.handlePanMove);
     window.addEventListener("blur", this.stopPanning);
     this.handleResize();
-    this.updateCitizenPanel();
-  }
-
-  start() {
-    if (this.running) return;
+    
+    // Iniciar el loop de renderizado inmediatamente para mostrar el menú
     this.running = true;
     this.lastTime = performance.now();
-    this.hud.hideOverlay();
-    this.hud.setPauseButtonState(true);
     requestAnimationFrame(this.loop);
   }
 
+  private initializeGame() {
+    if (this.gameInitialized) return;
+    
+    const config = this.mainMenu.getConfig();
+    
+    // Crear mundo con la configuración del menú
+    this.world = new WorldEngine(config.worldSize, config.seed);
+    this.player = new PlayerSpirit(config.worldSize);
+    this.player.x = this.world.villageCenter.x;
+    this.player.y = this.world.villageCenter.y;
+    
+    this.citizenSystem = new CitizenSystem(this.world, this.handleCitizenEvent);
+    this.world.citizenLookup = (id) => this.citizenSystem.getCitizenById(id);
+    
+    this.viewTarget = { x: this.player.x + 0.5, y: this.player.y + 0.5 };
+    this.defaultCenter.x = (config.worldSize - 1) / 2;
+    this.defaultCenter.y = (config.worldSize - 1) / 2;
+
+    // Inicializar ciudadanos según dificultad
+    const roles: Role[] = [];
+    const baseRoles: Role[] = ["farmer", "farmer", "worker", "worker"];
+    
+    if (config.difficulty === "easy") {
+      roles.push(...baseRoles, "warrior", "scout", "child", "child");
+    } else if (config.difficulty === "normal") {
+      roles.push(...baseRoles, "warrior", "scout", "child");
+    } else {
+      roles.push(...baseRoles, "warrior");
+    }
+    
+    this.citizenSystem.init(roles, this.playerTribeId);
+    this.updateRoleControls(true);
+    
+    // Agregar recursos extra en modo fácil
+    if (config.difficulty === "easy") {
+      this.world.stockpile.food += 20;
+      this.world.stockpile.stone += 10;
+    } else if (config.difficulty === "hard") {
+      this.world.stockpile.food = Math.max(20, this.world.stockpile.food - 10);
+      this.world.stockpile.stone = Math.max(5, this.world.stockpile.stone - 5);
+    }
+    
+    this.gameInitialized = true;
+    this.updateCitizenPanel();
+    
+    // Configurar el HUD para mostrar que el juego está en marcha
+    this.hud.setPauseButtonState(true);
+    this.hud.updateStatus("▶️ Simulación en curso.");
+    
+    this.logEvent(`🌍 Mundo generado con semilla: ${config.seed}`, "info");
+    this.logEvent(`📏 Tamaño: ${config.worldSize}x${config.worldSize}`, "info");
+    this.logEvent(`⚔️ Dificultad: ${config.difficulty}`, "info");
+  }
+
+  private initializeAndStart() {
+    this.mainMenu.hide();
+    this.initializeGame();
+    // El loop continuará automáticamente después de cerrar el menú
+  }
+
+  start() {
+    // Ya no se necesita porque el juego empieza automáticamente mostrando el menú
+  }
+
   pause() {
+    if (!this.gameInitialized) return; // No pausar si el juego no ha iniciado
     this.running = false;
     this.hud.updateStatus("⏸️ En pausa.");
     this.hud.setPauseButtonState(false);
   }
 
   resume() {
+    if (!this.gameInitialized) return; // No reanudar si el juego no ha iniciado
     if (this.running) return;
     this.running = true;
     this.lastTime = performance.now();
@@ -112,6 +178,14 @@ export class Game {
   }
 
   private handlePauseToggle = () => {
+    if (!this.gameInitialized) {
+      // Si el juego no ha iniciado, cerrar el menú e inicializar
+      if (this.mainMenu.isMenuVisible()) {
+        this.initializeAndStart();
+      }
+      return;
+    }
+    
     if (this.running) {
       this.pause();
     } else {
@@ -154,6 +228,9 @@ export class Game {
   }
 
   private handleRoleSliderInput = () => {
+    if (!this.gameInitialized || !this.citizenSystem) {
+      return;
+    }
     const targets = this.collectRoleTargets();
     this.citizenSystem.rebalanceRoles(targets, this.playerTribeId);
     this.updateRoleControls(true);
@@ -175,6 +252,9 @@ export class Game {
   }
 
   private updateRoleControls(force = false) {
+    if (!this.citizenSystem) {
+      return;
+    }
     const assignable = this.citizenSystem.getAssignablePopulationCount(this.playerTribeId);
     const counts = this.citizenSystem.getRoleCounts(this.playerTribeId);
     for (const role of this.assignableRoles) {
@@ -193,6 +273,19 @@ export class Game {
 
   private loop = (time: number) => {
     if (!this.running) return;
+    
+    // Si el menú está visible, solo renderizarlo
+    if (this.mainMenu.isMenuVisible()) {
+      this.mainMenu.render();
+      requestAnimationFrame(this.loop);
+      return;
+    }
+    
+    // Si el juego no está inicializado pero el menú se cerró, inicializar ahora
+    if (!this.gameInitialized) {
+      this.initializeGame();
+    }
+    
     const deltaSeconds = (time - this.lastTime) / 1000;
     this.lastTime = time;
     this.handleRealtimeInput();
@@ -230,6 +323,8 @@ export class Game {
   }
 
   private runTick(tickHours: number) {
+    if (!this.gameInitialized) return;
+    
     const moveIntent = this.pendingMoveDirection ?? this.currentDirection;
     if (moveIntent.x !== 0 || moveIntent.y !== 0) {
       this.player.move(moveIntent.x, moveIntent.y, this.world);
@@ -470,6 +565,8 @@ export class Game {
   }
 
   private draw() {
+    if (!this.gameInitialized) return;
+    
     const renderState: RenderState = {
       world: this.world,
       citizens: this.citizenSystem.getCitizens(),
@@ -484,6 +581,9 @@ export class Game {
   }
 
   private handleCanvasClick = (event: MouseEvent) => {
+    if (!this.gameInitialized) {
+      return;
+    }
     const cell = this.getCellUnderPointer(event);
     if (!cell) {
       this.selectedCitizen = null;
@@ -503,6 +603,9 @@ export class Game {
   };
 
   private handleCitizenPanelSelection = (citizenId: number) => {
+    if (!this.gameInitialized) {
+      return;
+    }
     const citizen = this.citizenSystem.getCitizenById(citizenId) ?? null;
     this.selectedCitizen = citizen;
     if (citizen) {
@@ -512,10 +615,16 @@ export class Game {
   };
 
   private handleCanvasHover = (event: MouseEvent) => {
+    if (!this.gameInitialized) {
+      return;
+    }
     this.hoveredCell = this.getCellUnderPointer(event);
   };
 
   private handleCanvasWheel = (event: WheelEvent) => {
+    if (!this.gameInitialized) {
+      return;
+    }
     event.preventDefault();
     const anchor = this.getWorldPosition(event);
     const delta = event.deltaY < 0 ? 0.2 : -0.2;
@@ -523,6 +632,9 @@ export class Game {
   };
 
   private handleMouseDown = (event: MouseEvent) => {
+    if (!this.gameInitialized) {
+      return;
+    }
     if (event.button === 1) {
       event.preventDefault();
       this.isPanning = true;
@@ -531,12 +643,18 @@ export class Game {
   };
 
   private handleMouseUp = (event: MouseEvent) => {
+    if (!this.gameInitialized) {
+      return;
+    }
     if (event.button === 1) {
       this.stopPanning();
     }
   };
 
   private handlePanMove = (event: MouseEvent) => {
+    if (!this.gameInitialized) {
+      return;
+    }
     if (!this.isPanning || !this.lastPanPosition) return;
     if (this.zoom <= 1) {
       this.lastPanPosition = { x: event.clientX, y: event.clientY };
@@ -562,6 +680,9 @@ export class Game {
   };
 
   private getWorldPosition(event: MouseEvent | WheelEvent): Vec2 | null {
+    if (!this.gameInitialized || !this.world) {
+      return null;
+    }
     const rect = this.canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -575,6 +696,9 @@ export class Game {
   }
 
   private getCellUnderPointer(event: MouseEvent | WheelEvent): Vec2 | null {
+    if (!this.world) {
+      return null;
+    }
     const worldPoint = this.getWorldPosition(event);
     if (!worldPoint) return null;
     const cellX = Math.floor(worldPoint.x);
@@ -586,12 +710,18 @@ export class Game {
   }
 
   private adjustZoom(delta: number, anchor?: Vec2 | null) {
+    if (!this.gameInitialized) {
+      return;
+    }
     if (!Number.isFinite(delta) || delta === 0) return;
     const nextZoom = clamp(this.zoom + delta, this.minZoom, this.maxZoom);
     this.setZoom(nextZoom, anchor ?? undefined);
   }
 
   private setZoom(value: number, anchor?: Vec2) {
+    if (!this.gameInitialized) {
+      return;
+    }
     const previous = this.zoom;
     this.zoom = clamp(value, this.minZoom, this.maxZoom);
     if (anchor) {
@@ -602,6 +732,9 @@ export class Game {
   }
 
   private focusOn(point: Vec2) {
+    if (!this.world) {
+      return;
+    }
     this.viewTarget = {
       x: clamp(point.x, 0.5, this.world.size - 0.5),
       y: clamp(point.y, 0.5, this.world.size - 0.5),
@@ -636,11 +769,17 @@ export class Game {
     const hoverAnchor = () => (this.hoveredCell ? { x: this.hoveredCell.x + 0.5, y: this.hoveredCell.y + 0.5 } : null);
 
     this.zoomInButton?.addEventListener("click", () => {
+      if (!this.gameInitialized) {
+        return;
+      }
       const anchor = hoverAnchor() ?? { x: this.player.x + 0.5, y: this.player.y + 0.5 };
       this.adjustZoom(0.2, anchor);
     });
 
     this.zoomOutButton?.addEventListener("click", () => {
+      if (!this.gameInitialized) {
+        return;
+      }
       this.adjustZoom(-0.2, hoverAnchor());
     });
   }
@@ -653,8 +792,10 @@ export class Game {
     const padding = 32;
     const availableWidth = wrapperRect.width - padding;
     const availableHeight = wrapperRect.height - padding;
-    const size = Math.min(availableWidth, availableHeight);
+    const size = Math.max(0, Math.min(availableWidth, availableHeight));
 
+    this.canvas.style.width = `${size}px`;
+    this.canvas.style.height = `${size}px`;
     this.canvas.width = size;
     this.canvas.height = size;
   };

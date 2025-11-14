@@ -8,4 +8,5 @@ if (!canvas) {
 }
 
 const game = new Game(canvas);
-game.start();
+// El juego ahora se inicia automáticamente mostrando el menú
+
