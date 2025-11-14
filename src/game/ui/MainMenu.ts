@@ -8,6 +8,19 @@ export interface WorldGenerationConfig {
   startingCitizens: number;
 }
 
+type MenuButtonKey =
+  | "start"
+  | "seedInput"
+  | "randomSeed"
+  | "sizeSmall"
+  | "sizeNormal"
+  | "sizeLarge"
+  | "difficultyEasy"
+  | "difficultyNormal"
+  | "difficultyHard";
+
+type ButtonRegion = { x: number; y: number; width: number; height: number };
+
 export class MainMenu {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -21,13 +34,14 @@ export class MainMenu {
     startingCitizens: 5
   };
   
-  private hoveredButton: string | null = null;
+  private hoveredButton: MenuButtonKey | null = null;
   private focusedInput: string | null = null;
   private seedInputValue: string = "";
   private previewWorld: WorldEngine | null = null;
   private previewDirty = true;
   private lastPreviewUpdate = 0;
   private readonly previewThrottleMs = 220;
+  private buttonRegions: Partial<Record<MenuButtonKey, ButtonRegion>> = {};
   
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -134,49 +148,27 @@ export class MainMenu {
     }
   }
   
-  private getButtonAt(x: number, y: number): string | null {
-    const centerX = this.canvas.width / 2;
-    const startY = 280;
-    
-    // Botón Start
-    if (x >= centerX - 150 && x <= centerX + 150 && 
-        y >= startY + 440 && y <= startY + 500) {
-      return "start";
+  private getButtonAt(x: number, y: number): MenuButtonKey | null {
+    for (const [key, region] of Object.entries(this.buttonRegions) as Array<[MenuButtonKey, ButtonRegion]>) {
+      if (!region) continue;
+      if (x >= region.x && x <= region.x + region.width && y >= region.y && y <= region.y + region.height) {
+        return key;
+      }
     }
-    
-    // Input de semilla
-    if (x >= centerX - 200 && x <= centerX + 50 &&
-        y >= startY + 20 && y <= startY + 60) {
-      return "seedInput";
-    }
-    
-    // Botón Random Seed
-    if (x >= centerX + 60 && x <= centerX + 200 &&
-        y >= startY + 20 && y <= startY + 60) {
-      return "randomSeed";
-    }
-    
-    // Botones de tamaño
-    const sizeY = startY + 120;
-    if (y >= sizeY && y <= sizeY + 40) {
-      if (x >= centerX - 180 && x <= centerX - 70) return "sizeSmall";
-      if (x >= centerX - 60 && x <= centerX + 60) return "sizeNormal";
-      if (x >= centerX + 70 && x <= centerX + 180) return "sizeLarge";
-    }
-    
-    // Botones de dificultad
-    const diffY = startY + 220;
-    if (y >= diffY && y <= diffY + 40) {
-      if (x >= centerX - 180 && x <= centerX - 70) return "difficultyEasy";
-      if (x >= centerX - 60 && x <= centerX + 60) return "difficultyNormal";
-      if (x >= centerX + 70 && x <= centerX + 180) return "difficultyHard";
-    }
-    
     return null;
+  }
+
+  private setButtonRegion(key: MenuButtonKey, x: number, y: number, width: number, height: number) {
+    this.buttonRegions[key] = { x, y, width, height };
+  }
+
+  private clearButtonRegions() {
+    this.buttonRegions = {};
   }
   
   render() {
     if (!this.isVisible) return;
+    this.clearButtonRegions();
     
     const ctx = this.ctx;
     const centerX = this.canvas.width / 2;
@@ -227,6 +219,7 @@ export class MainMenu {
     const inputY = currentY;
     const inputWidth = 250;
     const inputHeight = 40;
+    this.setButtonRegion("seedInput", inputX, inputY, inputWidth, inputHeight);
     
     const isInputHovered = this.hoveredButton === "seedInput";
     const isInputFocused = this.focusedInput === "seed";
@@ -256,6 +249,7 @@ export class MainMenu {
     // Botón Random
     const randomX = inputX + inputWidth + 10;
     const randomWidth = 140;
+    this.setButtonRegion("randomSeed", randomX, inputY, randomWidth, inputHeight);
     const isRandomHovered = this.hoveredButton === "randomSeed";
     
     ctx.fillStyle = isRandomHovered ? "rgba(139, 92, 246, 0.3)" : "rgba(139, 92, 246, 0.15)";
@@ -280,7 +274,7 @@ export class MainMenu {
     
     currentY += 30;
     
-    const sizeOptions = [
+    const sizeOptions: Array<{ label: string; value: number; key: MenuButtonKey }> = [
       { label: "Pequeño", value: 80, key: "sizeSmall" },
       { label: "Normal", value: 120, key: "sizeNormal" },
       { label: "Grande", value: 160, key: "sizeLarge" }
@@ -298,7 +292,7 @@ export class MainMenu {
     
     currentY += 30;
     
-    const difficultyOptions = [
+    const difficultyOptions: Array<{ label: string; value: "easy" | "normal" | "hard"; key: MenuButtonKey; desc: string }> = [
       { label: "Fácil", value: "easy", key: "difficultyEasy", desc: "8 ciudadanos" },
       { label: "Normal", value: "normal", key: "difficultyNormal", desc: "5 ciudadanos" },
       { label: "Difícil", value: "hard", key: "difficultyHard", desc: "3 ciudadanos" }
@@ -337,6 +331,7 @@ export class MainMenu {
     const startButtonWidth = 300;
     const startButtonHeight = 60;
     const startButtonX = centerX - startButtonWidth / 2;
+    this.setButtonRegion("start", startButtonX, startButtonY, startButtonWidth, startButtonHeight);
     
     const isStartHovered = this.hoveredButton === "start";
     
@@ -476,7 +471,7 @@ export class MainMenu {
   }
   
   private renderOptionButtons(
-    options: Array<{ label: string; value: number; key: string }>,
+    options: Array<{ label: string; value: number; key: MenuButtonKey }>,
     y: number,
     currentValue: number
   ) {
@@ -502,6 +497,7 @@ export class MainMenu {
       }
       
       ctx.fillRect(startX, y, buttonWidth, buttonHeight);
+      this.setButtonRegion(option.key, startX, y, buttonWidth, buttonHeight);
       
       ctx.strokeStyle = isSelected ? "#3b82f6" : isHovered ? "#64748b" : "#475569";
       ctx.lineWidth = isSelected ? 3 : 2;
@@ -521,7 +517,7 @@ export class MainMenu {
   }
   
   private renderDifficultyButtons(
-    options: Array<{ label: string; value: string; key: string; desc: string }>,
+    options: Array<{ label: string; value: "easy" | "normal" | "hard"; key: MenuButtonKey; desc: string }>,
     y: number
   ) {
     const ctx = this.ctx;
@@ -551,6 +547,7 @@ export class MainMenu {
       }
       
       ctx.fillRect(startX, y, buttonWidth, buttonHeight);
+      this.setButtonRegion(option.key, startX, y, buttonWidth, buttonHeight);
       
       ctx.strokeStyle = isSelected ? color : isHovered ? `${color}80` : "#475569";
       ctx.lineWidth = isSelected ? 3 : 2;
