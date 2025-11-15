@@ -505,6 +505,37 @@ body {
   color: rgba(255, 255, 255, 0.8);
 }
 
+.speed-controls {
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.speed-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.speed-button-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.speed-button {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.speed-button.active {
+  background: rgba(247, 200, 125, 0.25);
+  border-color: rgba(247, 200, 125, 0.9);
+  box-shadow: 0 0 16px rgba(247, 200, 125, 0.25);
+}
+
 .panel-actions {
   display: flex;
   flex-direction: column;
