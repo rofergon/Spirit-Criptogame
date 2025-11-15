@@ -170,177 +170,80 @@ export class MainMenu {
   render() {
     if (!this.isVisible) return;
     this.clearButtonRegions();
-    
+
     const ctx = this.ctx;
-    const centerX = this.canvas.width / 2;
-    const centerY = this.canvas.height / 2;
-    
+    const canvasWidth = this.canvas.width;
+    const canvasHeight = this.canvas.height;
+    const centerX = canvasWidth / 2;
+
     // Fondo oscuro con gradiente
-    const gradient = ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
     gradient.addColorStop(0, "#0f172a");
     gradient.addColorStop(1, "#1e293b");
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
     // Título principal
     ctx.fillStyle = "#f0e7dc";
     ctx.font = "bold 48px Arial";
     ctx.textAlign = "center";
     ctx.fillText("🏛️ GENERACIÓN DE MUNDO", centerX, 120);
-    
+
     ctx.font = "18px Arial";
     ctx.fillStyle = "#94a3b8";
     ctx.fillText("Configura tu civilización antes de comenzar", centerX, 160);
-    
-    // Panel de configuración
-    const panelX = centerX - 300;
-    const panelY = 200;
-    const panelWidth = 600;
-    const panelHeight = 520;
-    
-    ctx.fillStyle = "rgba(30, 41, 59, 0.8)";
-    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
-    
-    ctx.strokeStyle = "rgba(233, 204, 152, 0.3)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
-    
-    let currentY = panelY + 40;
-    
-    // ===== SEMILLA =====
-    ctx.fillStyle = "#e9cc98";
-    ctx.font = "bold 16px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText("🌱 Semilla del Mundo:", panelX + 20, currentY);
-    
-    currentY += 30;
-    
-    // Input de semilla
-    const inputX = panelX + 20;
-    const inputY = currentY;
-    const inputWidth = 250;
-    const inputHeight = 40;
-    this.setButtonRegion("seedInput", inputX, inputY, inputWidth, inputHeight);
-    
-    const isInputHovered = this.hoveredButton === "seedInput";
-    const isInputFocused = this.focusedInput === "seed";
-    
-    ctx.fillStyle = isInputFocused ? "rgba(59, 130, 246, 0.2)" : 
-                    isInputHovered ? "rgba(100, 116, 139, 0.3)" : 
-                    "rgba(15, 23, 42, 0.6)";
-    ctx.fillRect(inputX, inputY, inputWidth, inputHeight);
-    
-    ctx.strokeStyle = isInputFocused ? "#3b82f6" : 
-                      isInputHovered ? "#64748b" : "#475569";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(inputX, inputY, inputWidth, inputHeight);
-    
-    ctx.fillStyle = "#f0e7dc";
-    ctx.font = "20px 'Courier New'";
-    ctx.textAlign = "left";
-    ctx.fillText(this.seedInputValue || "0", inputX + 10, inputY + 26);
-    
-    // Cursor parpadeante
-    if (isInputFocused && Math.floor(Date.now() / 500) % 2 === 0) {
-      const textWidth = ctx.measureText(this.seedInputValue).width;
-      ctx.fillStyle = "#3b82f6";
-      ctx.fillRect(inputX + 10 + textWidth + 2, inputY + 10, 2, 20);
-    }
-    
-    // Botón Random
-    const randomX = inputX + inputWidth + 10;
-    const randomWidth = 140;
-    this.setButtonRegion("randomSeed", randomX, inputY, randomWidth, inputHeight);
-    const isRandomHovered = this.hoveredButton === "randomSeed";
-    
-    ctx.fillStyle = isRandomHovered ? "rgba(139, 92, 246, 0.3)" : "rgba(139, 92, 246, 0.15)";
-    ctx.fillRect(randomX, inputY, randomWidth, inputHeight);
-    
-    ctx.strokeStyle = isRandomHovered ? "#8b5cf6" : "#6d28d9";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(randomX, inputY, randomWidth, inputHeight);
-    
-    ctx.fillStyle = isRandomHovered ? "#a78bfa" : "#8b5cf6";
-    ctx.font = "14px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("🎲 Aleatorio", randomX + randomWidth / 2, inputY + 25);
-    
-    currentY += 80;
-    
-    // ===== TAMAÑO DEL MUNDO =====
-    ctx.fillStyle = "#e9cc98";
-    ctx.font = "bold 16px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText("🗺️ Tamaño del Mundo:", panelX + 20, currentY);
-    
-    currentY += 30;
-    
-    const sizeOptions: Array<{ label: string; value: number; key: MenuButtonKey }> = [
-      { label: "Pequeño", value: 80, key: "sizeSmall" },
-      { label: "Normal", value: 120, key: "sizeNormal" },
-      { label: "Grande", value: 160, key: "sizeLarge" }
-    ];
-    
-    this.renderOptionButtons(sizeOptions, currentY, this.config.worldSize);
-    
-    currentY += 70;
-    
-    // ===== DIFICULTAD =====
-    ctx.fillStyle = "#e9cc98";
-    ctx.font = "bold 16px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText("⚔️ Dificultad:", panelX + 20, currentY);
-    
-    currentY += 30;
-    
-    const difficultyOptions: Array<{ label: string; value: "easy" | "normal" | "hard"; key: MenuButtonKey; desc: string }> = [
-      { label: "Fácil", value: "easy", key: "difficultyEasy", desc: "8 ciudadanos" },
-      { label: "Normal", value: "normal", key: "difficultyNormal", desc: "5 ciudadanos" },
-      { label: "Difícil", value: "hard", key: "difficultyHard", desc: "3 ciudadanos" }
-    ];
-    
-    this.renderDifficultyButtons(difficultyOptions, currentY);
-    
-    currentY += 90;
 
-    this.renderWorldPreview(panelX + 20, currentY, panelWidth - 40, 160);
-    currentY += 180;
-    
-    // ===== INFORMACIÓN =====
-    ctx.fillStyle = "rgba(59, 130, 246, 0.15)";
-    ctx.fillRect(panelX + 20, currentY, panelWidth - 40, 80);
-    
-    ctx.strokeStyle = "rgba(59, 130, 246, 0.3)";
+    const layoutTop = 190;
+    const horizontalMargin = Math.max(60, canvasWidth * 0.05);
+    const layoutWidth = Math.min(canvasWidth - horizontalMargin * 2, 1280);
+    const layoutLeft = (canvasWidth - layoutWidth) / 2;
+    const isStackedLayout = layoutWidth < 900;
+    const columnSpacing = isStackedLayout ? 30 : 50;
+    const minRightWidth = 360;
+
+    let leftWidth = isStackedLayout ? layoutWidth : Math.min(660, Math.max(520, layoutWidth * 0.58));
+    if (!isStackedLayout && layoutWidth - leftWidth - columnSpacing < minRightWidth) {
+      leftWidth = layoutWidth - columnSpacing - minRightWidth;
+    }
+
+    let rightWidth = isStackedLayout ? layoutWidth : layoutWidth - leftWidth - columnSpacing;
+    const leftX = layoutLeft;
+    let rightX = isStackedLayout ? layoutLeft : leftX + leftWidth + columnSpacing;
+
+    const previewMaxHeight = isStackedLayout ? 420 : 460;
+    const previewHeight = Math.max(320, Math.min(previewMaxHeight, canvasHeight - layoutTop - 260));
+    const previewY = layoutTop;
+
+    this.renderWorldPreview(leftX, previewY, leftWidth, previewHeight);
+
+    const infoY = previewY + previewHeight + 20;
+    const infoHeight = 90;
+    ctx.fillStyle = "rgba(59, 130, 246, 0.12)";
+    ctx.fillRect(leftX, infoY, leftWidth, infoHeight);
+
+    ctx.strokeStyle = "rgba(59, 130, 246, 0.25)";
     ctx.lineWidth = 1;
-    ctx.strokeRect(panelX + 20, currentY, panelWidth - 40, 80);
-    
+    ctx.strokeRect(leftX, infoY, leftWidth, infoHeight);
+
     ctx.fillStyle = "#93c5fd";
     ctx.font = "13px Arial";
     ctx.textAlign = "left";
-    ctx.fillText("ℹ️ Información:", panelX + 35, currentY + 22);
-    
+    ctx.fillText("ℹ️ Información:", leftX + 16, infoY + 24);
+
     ctx.fillStyle = "#cbd5e1";
     ctx.font = "12px Arial";
-    ctx.fillText(`• La misma semilla genera el mismo mundo`, panelX + 35, currentY + 42);
-    ctx.fillText(`• Mundos más grandes = más exploración`, panelX + 35, currentY + 58);
-    ctx.fillText(`• Puedes copiar la semilla para compartir mundos`, panelX + 35, currentY + 74);
-    
-    currentY += 100;
-    
-    // ===== BOTÓN START =====
-    const startButtonY = currentY;
-    const startButtonWidth = 300;
-    const startButtonHeight = 60;
-    const startButtonX = centerX - startButtonWidth / 2;
+    ctx.fillText("• La misma semilla genera el mismo mundo", leftX + 16, infoY + 44);
+    ctx.fillText("• Mundos más grandes = más exploración", leftX + 16, infoY + 60);
+    ctx.fillText("• Puedes copiar la semilla para compartir mundos", leftX + 16, infoY + 76);
+
+    const startButtonHeight = 64;
+    const startButtonWidth = Math.min(380, leftWidth * 0.85);
+    const startButtonX = leftX + leftWidth / 2 - startButtonWidth / 2;
+    const startButtonY = infoY + infoHeight + 24;
     this.setButtonRegion("start", startButtonX, startButtonY, startButtonWidth, startButtonHeight);
-    
+
     const isStartHovered = this.hoveredButton === "start";
-    
-    const startGradient = ctx.createLinearGradient(
-      startButtonX, startButtonY,
-      startButtonX, startButtonY + startButtonHeight
-    );
-    
+    const startGradient = ctx.createLinearGradient(startButtonX, startButtonY, startButtonX, startButtonY + startButtonHeight);
     if (isStartHovered) {
       startGradient.addColorStop(0, "#10b981");
       startGradient.addColorStop(1, "#059669");
@@ -348,24 +251,139 @@ export class MainMenu {
       startGradient.addColorStop(0, "#059669");
       startGradient.addColorStop(1, "#047857");
     }
-    
+
     ctx.fillStyle = startGradient;
     ctx.fillRect(startButtonX, startButtonY, startButtonWidth, startButtonHeight);
-    
     ctx.strokeStyle = isStartHovered ? "#34d399" : "#10b981";
     ctx.lineWidth = 3;
     ctx.strokeRect(startButtonX, startButtonY, startButtonWidth, startButtonHeight);
-    
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 24px Arial";
+    ctx.font = "bold 22px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("🚀 COMENZAR PARTIDA", centerX, startButtonY + 38);
-    
-    // Footer
+    ctx.fillText("🚀 COMENZAR PARTIDA", startButtonX + startButtonWidth / 2, startButtonY + 38);
+
+    let configY = isStackedLayout ? startButtonY + startButtonHeight + 40 : layoutTop;
+    if (isStackedLayout) {
+      rightX = layoutLeft;
+      rightWidth = layoutWidth;
+    }
+
+    let panelHeight = canvasHeight - configY - 80;
+    if (panelHeight < 380) panelHeight = 380;
+    if (panelHeight > 560) panelHeight = 560;
+
+    ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
+    ctx.fillRect(rightX, configY, rightWidth, panelHeight);
+
+    ctx.strokeStyle = "rgba(233, 204, 152, 0.25)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rightX, configY, rightWidth, panelHeight);
+
+    const panelPadding = 28;
+    let currentY = configY + panelPadding;
+    const contentX = rightX + panelPadding;
+    const contentWidth = rightWidth - panelPadding * 2;
+
+    // ===== SEMILLA =====
+    ctx.fillStyle = "#e9cc98";
+    ctx.font = "bold 16px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText("🌱 Semilla del Mundo:", contentX, currentY);
+
+    currentY += 30;
+
+    const inputHeight = 42;
+    const randomWidth = Math.min(160, contentWidth * 0.35);
+    const inputWidth = Math.max(160, contentWidth - randomWidth - 12);
+    const inputX = contentX;
+    const inputY = currentY;
+    this.setButtonRegion("seedInput", inputX, inputY, inputWidth, inputHeight);
+
+    const isInputHovered = this.hoveredButton === "seedInput";
+    const isInputFocused = this.focusedInput === "seed";
+
+    ctx.fillStyle = isInputFocused
+      ? "rgba(59, 130, 246, 0.2)"
+      : isInputHovered
+        ? "rgba(100, 116, 139, 0.3)"
+        : "rgba(15, 23, 42, 0.6)";
+    ctx.fillRect(inputX, inputY, inputWidth, inputHeight);
+
+    ctx.strokeStyle = isInputFocused ? "#3b82f6" : isInputHovered ? "#64748b" : "#475569";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(inputX, inputY, inputWidth, inputHeight);
+
+    ctx.fillStyle = "#f0e7dc";
+    ctx.font = "20px 'Courier New'";
+    ctx.textAlign = "left";
+    ctx.fillText(this.seedInputValue || "0", inputX + 10, inputY + 27);
+
+    if (isInputFocused && Math.floor(Date.now() / 500) % 2 === 0) {
+      const textWidth = ctx.measureText(this.seedInputValue).width;
+      ctx.fillStyle = "#3b82f6";
+      ctx.fillRect(inputX + 12 + textWidth, inputY + 12, 2, 20);
+    }
+
+    const randomX = inputX + inputWidth + 12;
+    this.setButtonRegion("randomSeed", randomX, inputY, randomWidth, inputHeight);
+    const isRandomHovered = this.hoveredButton === "randomSeed";
+    ctx.fillStyle = isRandomHovered ? "rgba(139, 92, 246, 0.35)" : "rgba(139, 92, 246, 0.18)";
+    ctx.fillRect(randomX, inputY, randomWidth, inputHeight);
+    ctx.strokeStyle = isRandomHovered ? "#8b5cf6" : "#6d28d9";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(randomX, inputY, randomWidth, inputHeight);
+    ctx.fillStyle = isRandomHovered ? "#c4b5fd" : "#a78bfa";
+    ctx.font = "14px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("🎲 Aleatorio", randomX + randomWidth / 2, inputY + 26);
+
+    currentY += inputHeight + 50;
+
+    // ===== TAMAÑO DEL MUNDO =====
+    ctx.fillStyle = "#e9cc98";
+    ctx.font = "bold 16px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText("🗺️ Tamaño del Mundo:", contentX, currentY);
+
+    currentY += 32;
+
+    const sizeOptions: Array<{ label: string; value: number; key: MenuButtonKey }> = [
+      { label: "Pequeño", value: 80, key: "sizeSmall" },
+      { label: "Normal", value: 120, key: "sizeNormal" },
+      { label: "Grande", value: 160, key: "sizeLarge" }
+    ];
+    this.renderOptionButtons(sizeOptions, currentY, this.config.worldSize, rightX + rightWidth / 2);
+
+    currentY += 80;
+
+    // ===== DIFICULTAD =====
+    ctx.fillStyle = "#e9cc98";
+    ctx.font = "bold 16px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText("⚔️ Dificultad:", contentX, currentY);
+
+    currentY += 32;
+
+    const difficultyOptions: Array<{ label: string; value: "easy" | "normal" | "hard"; key: MenuButtonKey; desc: string }> = [
+      { label: "Fácil", value: "easy", key: "difficultyEasy", desc: "8 ciudadanos" },
+      { label: "Normal", value: "normal", key: "difficultyNormal", desc: "5 ciudadanos" },
+      { label: "Difícil", value: "hard", key: "difficultyHard", desc: "3 ciudadanos" }
+    ];
+    this.renderDifficultyButtons(difficultyOptions, currentY, rightX + rightWidth / 2);
+
+    currentY += 110;
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "11px Arial";
+    ctx.fillText("Consejo: cambia la semilla o tamaño para regenerar la vista previa.", contentX, currentY);
+
     ctx.fillStyle = "#64748b";
     ctx.font = "12px Arial";
-    ctx.fillText("Presiona ESC durante el juego para pausar", centerX, this.canvas.height - 30);
+    ctx.textAlign = "center";
+    ctx.fillText("Presiona ESC durante el juego para pausar", centerX, canvasHeight - 30);
   }
+
 
   private renderWorldPreview(x: number, y: number, width: number, height: number): void {
     const ctx = this.ctx;
@@ -479,10 +497,11 @@ export class MainMenu {
   private renderOptionButtons(
     options: Array<{ label: string; value: number; key: MenuButtonKey }>,
     y: number,
-    currentValue: number
+    currentValue: number,
+    centerXOverride?: number
   ) {
     const ctx = this.ctx;
-    const centerX = this.canvas.width / 2;
+    const centerX = centerXOverride ?? this.canvas.width / 2;
     const buttonWidth = 110;
     const buttonHeight = 40;
     const spacing = 10;
@@ -524,10 +543,11 @@ export class MainMenu {
   
   private renderDifficultyButtons(
     options: Array<{ label: string; value: "easy" | "normal" | "hard"; key: MenuButtonKey; desc: string }>,
-    y: number
+    y: number,
+    centerXOverride?: number
   ) {
     const ctx = this.ctx;
-    const centerX = this.canvas.width / 2;
+    const centerX = centerXOverride ?? this.canvas.width / 2;
     const buttonWidth = 110;
     const buttonHeight = 50;
     const spacing = 10;
