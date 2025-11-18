@@ -1,5 +1,6 @@
 import "./style.css";
 import { Game } from "./game/game";
+import "./game/wallet/walletConfig";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 
