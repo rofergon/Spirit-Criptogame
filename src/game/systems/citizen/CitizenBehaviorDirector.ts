@@ -355,10 +355,29 @@ const workerAI: CitizenAI = (citizen, view) => {
 
   // Si no hay directiva de construcción, recolectar recursos naturales
   if (gatherEngine) {
-    if (gatherEngine.shouldHarvestWood(citizen, view)) {
+    const needWood = gatherEngine.shouldHarvestWood(citizen, view);
+    const needStone = gatherEngine.shouldHarvestStone(citizen, view);
+
+    if (needWood && needStone) {
+      // Si ambos son necesarios, priorizar el que tenga menos stock relativo
+      const world = activeDirector?.world;
+      if (world) {
+        const woodRatio = world.stockpile.wood / world.stockpile.woodCapacity;
+        const stoneRatio = world.stockpile.stone / world.stockpile.stoneCapacity;
+
+        if (stoneRatio < woodRatio) {
+          return gatherEngine.runGathererBrain(citizen, view, "stone");
+        }
+      }
       return gatherEngine.runGathererBrain(citizen, view, "wood");
     }
-    return gatherEngine.runGathererBrain(citizen, view, "stone");
+
+    if (needWood) {
+      return gatherEngine.runGathererBrain(citizen, view, "wood");
+    }
+    if (needStone) {
+      return gatherEngine.runGathererBrain(citizen, view, "stone");
+    }
   }
   return wanderCitizen(citizen);
 };
