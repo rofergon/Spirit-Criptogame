@@ -1,0 +1,593 @@
+import { clamp, hashNoise, mulberry32 } from "../../utils";
+import type { Terrain, Vec2, WorldCell } from "../../types";
+import { ResourceGenerator } from "./ResourceGenerator";
+
+type BiomeRegion = {
+    id: number;
+    x: number;
+    y: number;
+    biome: Terrain;
+    elevation: number;
+    moisture: number;
+    spread: number;
+};
+
+type BiomeRegionResult = {
+    map: number[][];
+    regions: BiomeRegion[];
+};
+
+export class TerrainGenerator {
+    private size: number;
+    private seed: number;
+    private rng: () => number;
+    private resourceGenerator: ResourceGenerator;
+
+    constructor(size: number, seed: number) {
+        this.size = size;
+        this.seed = seed;
+        this.rng = mulberry32(seed);
+        this.resourceGenerator = new ResourceGenerator(size, seed);
+    }
+
+    public generateTerrain(): WorldCell[][] {
+        const rows: WorldCell[][] = [];
+
+        // Paso 1: Generar mapas de elevación y humedad con múltiples octavas
+        const elevationMap: number[][] = [];
+        const moistureMap: number[][] = [];
+
+        for (let y = 0; y < this.size; y += 1) {
+            elevationMap[y] = [];
+            moistureMap[y] = [];
+            for (let x = 0; x < this.size; x += 1) {
+                // Múltiples octavas para elevación (más detalle)
+                let elevation = this.multiOctaveNoise(x, y, this.seed, [
+                    { freq: 1, amp: 1.0 },
+                    { freq: 2, amp: 0.5 },
+                    { freq: 4, amp: 0.25 },
+                    { freq: 8, amp: 0.13 },
+                    { freq: 16, amp: 0.06 }
+                ]);
+
+                // Redistribución para crear valles planos y montañas pronunciadas
+                elevation = Math.pow(elevation, 2.5);
+                elevationMap[y]![x] = elevation;
+
+                // Múltiples octavas para humedad con offsets muy diferentes para evitar correlación
+                const moisture = this.multiOctaveNoise(x + 12345, y + 67890, this.seed + 314159, [
+                    { freq: 1, amp: 1.0 },
+                    { freq: 2, amp: 0.75 },
+                    { freq: 4, amp: 0.33 },
+                    { freq: 8, amp: 0.33 }
+                ]);
+                moistureMap[y]![x] = moisture;
+            }
+        }
+
+        const biomeRegions = this.generateBiomeRegions(elevationMap, moistureMap, this.seed);
+
+        // Paso 2: Generar ríos desde picos de montañas
+        const rivers = this.generateRivers(elevationMap, moistureMap);
+
+        // Paso 3: Crear celdas con biomas basados en elevación y humedad
+        for (let y = 0; y < this.size; y += 1) {
+            const row: WorldCell[] = [];
+            for (let x = 0; x < this.size; x += 1) {
+                const elevation = elevationMap[y]?.[x] ?? 0.5;
+                const moisture = moistureMap[y]?.[x] ?? 0.5;
+
+                const baseBiome = this.determineBiome(elevation, moisture);
+                const regionId = biomeRegions.map[y]?.[x];
+                const regionBiome = regionId !== undefined ? biomeRegions.regions[regionId]?.biome : undefined;
+
+                let terrain: Terrain = baseBiome;
+                if (regionBiome) {
+                    terrain = this.resolveRegionTerrain(regionBiome, baseBiome, elevation, moisture);
+                }
+                terrain = this.applyExtremeElevationBias(terrain, elevation, moisture);
+
+                // Sobrescribir con río si existe
+                if (rivers.has(`${x},${y}`)) {
+                    terrain = "river";
+                }
+
+                const fertility = this.resourceGenerator.calculateFertility(terrain, moisture);
+                const resource = this.resourceGenerator.generateResource(terrain, fertility, x, y);
+
+                const cell: WorldCell = {
+                    x,
+                    y,
+                    terrain,
+                    fertility,
+                    moisture,
+                    inhabitants: [],
+                    priority: "none",
+                    cropProgress: 0,
+                    cropStage: 0,
+                    farmTask: null,
+                };
+
+                if (resource) {
+                    cell.resource = resource;
+                }
+
+                row.push(cell);
+            }
+            rows.push(row);
+        }
+        this.resourceGenerator.placeWoodClusters(rows);
+        return rows;
+    }
+
+    private multiOctaveNoise(
+        x: number,
+        y: number,
+        seed: number,
+        octaves: Array<{ freq: number; amp: number }>
+    ): number {
+        let total = 0;
+        let totalAmplitude = 0;
+        const baseFrequency = 0.015;
+
+        octaves.forEach((octave, i) => {
+            const frequency = baseFrequency * octave.freq;
+
+            // Domain warping para eliminar patrones diagonales
+            const warpStrength = 8.0;
+            const warpFreq = frequency * 0.5;
+
+            const warpX = hashNoise(x * warpFreq + 1000, y * warpFreq + 2000, seed + i * 1000) * warpStrength;
+            const warpY = hashNoise(x * warpFreq + 3000, y * warpFreq + 4000, seed + i * 1000) * warpStrength;
+
+            const warpedX = x + warpX;
+            const warpedY = y + warpY;
+
+            // Usar offsets más diversos y primos grandes para evitar correlación
+            const offsetX = i * 127.1;
+            const offsetY = i * 311.7;
+            const offsetSeed = seed + i * 2654435761;
+
+            total += hashNoise(
+                (warpedX + offsetX) * frequency,
+                (warpedY + offsetY) * frequency,
+                offsetSeed
+            ) * octave.amp;
+            totalAmplitude += octave.amp;
+        });
+
+        // Normalizar al rango [0, 1]
+        return clamp(total / totalAmplitude, 0, 1);
+    }
+
+    private determineBiome(elevation: number, moisture: number): Terrain {
+        // Sistema de biomas mejorado con transiciones más naturales
+        // Basado en elevación (temperatura) y humedad
+
+        // Océanos - umbrales más estrictos para evitar dispersión
+        if (elevation < 0.08) return "ocean";
+        if (elevation < 0.12) return "beach";
+
+        // Montañas altas (frío) - transiciones más suaves
+        if (elevation > 0.85) {
+            if (moisture < 0.15) return "mountain"; // Montaña árida
+            if (moisture < 0.35) return "tundra";
+            return "snow"; // Picos nevados
+        }
+
+        // Tierras altas
+        if (elevation > 0.7) {
+            if (moisture < 0.2) return "mountain"; // Montaña media
+            if (moisture < 0.4) return "tundra";
+            if (moisture < 0.7) return "forest";
+            return "tundra"; // Bosque frío de montaña
+        }
+
+        // Tierras medias-altas
+        if (elevation > 0.5) {
+            if (moisture < 0.25) return "desert";
+            if (moisture < 0.45) return "grassland";
+            if (moisture < 0.75) return "forest";
+            return "forest"; // Bosque húmedo
+        }
+
+        // Tierras medias
+        if (elevation > 0.25) {
+            if (moisture < 0.2) return "desert";
+            if (moisture < 0.4) return "grassland";
+            if (moisture < 0.8) return "forest";
+            return "swamp"; // Pantano en tierras bajas húmedas
+        }
+
+        // Tierras bajas - más coherentes
+        if (moisture < 0.25) return "grassland"; // Pradera costera
+        if (moisture < 0.5) return "grassland";
+        if (moisture < 0.8) return "forest";
+        return "swamp"; // Pantano costero
+    }
+
+    private generateBiomeRegions(
+        elevationMap: number[][],
+        moistureMap: number[][],
+        seed: number
+    ): BiomeRegionResult {
+        const approxRegionSize = Math.max(12, Math.floor(this.size / 4)); // Regiones más grandes
+        const targetRegions = clamp(
+            Math.floor((this.size * this.size) / (approxRegionSize * approxRegionSize)),
+            6,
+            32 // Menos regiones para mayor cohesión
+        );
+        const regionSeed = (seed ^ 0x9e3779b9) >>> 0;
+        const regionRng = mulberry32(regionSeed);
+        const regions: BiomeRegion[] = [];
+        const candidateTries = 15; // Más intentos para mejor distribución
+
+        for (let i = 0; i < targetRegions; i += 1) {
+            let bestCandidate: Vec2 | undefined;
+            let bestScore = -Infinity;
+
+            for (let attempt = 0; attempt < candidateTries; attempt += 1) {
+                const candidate: Vec2 = {
+                    x: Math.floor(regionRng() * this.size),
+                    y: Math.floor(regionRng() * this.size),
+                };
+                let minDist = this.size;
+                if (regions.length > 0) {
+                    regions.forEach((region) => {
+                        const distance = Math.hypot(candidate.x - region.x, candidate.y - region.y);
+                        if (distance < minDist) {
+                            minDist = distance;
+                        }
+                    });
+                }
+                const coastalBuffer = Math.min(
+                    candidate.x,
+                    candidate.y,
+                    this.size - 1 - candidate.x,
+                    this.size - 1 - candidate.y
+                );
+                const coastalWeight = coastalBuffer < this.size * 0.08 ? 0.85 : 1;
+                const score = minDist * coastalWeight;
+                if (score > bestScore || !bestCandidate) {
+                    bestScore = score;
+                    bestCandidate = candidate;
+                }
+            }
+
+            const selected = bestCandidate ?? {
+                x: Math.floor(regionRng() * this.size),
+                y: Math.floor(regionRng() * this.size),
+            };
+            const baseElevation = elevationMap[selected.y]?.[selected.x] ?? 0.5;
+            const baseMoisture = moistureMap[selected.y]?.[selected.x] ?? 0.5;
+            const biome = this.determineBiome(baseElevation, baseMoisture);
+
+            regions.push({
+                id: i,
+                x: selected.x,
+                y: selected.y,
+                biome,
+                elevation: baseElevation,
+                moisture: baseMoisture,
+                spread: this.getBiomeSpread(biome),
+            });
+        }
+
+        const regionMap = Array.from({ length: this.size }, () => Array.from({ length: this.size }, () => 0));
+        // const jitterOctaves = [
+        //   { freq: 0.5, amp: 1 },
+        //   { freq: 1, amp: 0.5 },
+        //   { freq: 2, amp: 0.25 },
+        // ];
+
+        for (let y = 0; y < this.size; y += 1) {
+            const row = regionMap[y];
+            if (!row) continue;
+            for (let x = 0; x < this.size; x += 1) {
+                const elevation = elevationMap[y]?.[x] ?? 0.5;
+                const moisture = moistureMap[y]?.[x] ?? 0.5;
+                let bestScore = Infinity;
+                let bestRegion = 0;
+
+                regions.forEach((region) => {
+                    const dx = x - region.x;
+                    const dy = y - region.y;
+                    const distance = Math.hypot(dx, dy);
+
+                    // Improved jitter using domain warping to break diagonal patterns
+                    const warpX = hashNoise(x * 0.01 + 5000, y * 0.01 + 6000, seed + region.id * 997) * 12;
+                    const warpY = hashNoise(x * 0.01 + 7000, y * 0.01 + 8000, seed + region.id * 997) * 12;
+
+                    const jitterX = hashNoise(
+                        (x + warpX) * 0.02 + region.x * 0.31,
+                        (y + warpY) * 0.02 + region.y * 0.27,
+                        seed + region.id * 1009
+                    );
+                    const jitterY = hashNoise(
+                        (x + warpX + 1000) * 0.02 + region.x * 0.31,
+                        (y + warpY + 1000) * 0.02 + region.y * 0.27,
+                        seed + region.id * 1009
+                    );
+
+                    const jitterMagnitude = Math.sqrt(jitterX * jitterX + jitterY * jitterY);
+                    const warpedDistance = distance * (0.7 + jitterMagnitude * 0.6) * region.spread;
+
+                    const climateDiff =
+                        Math.abs(elevation - region.elevation) * 90 +
+                        Math.abs(moisture - region.moisture) * 70;
+                    const score = warpedDistance + climateDiff;
+                    if (score < bestScore) {
+                        bestScore = score;
+                        bestRegion = region.id;
+                    }
+                });
+
+                row[x] = bestRegion;
+            }
+        }
+
+        this.smoothBiomeRegions(regionMap, 3); // Más iteraciones de suavizado
+        return { map: regionMap, regions };
+    }
+
+    private smoothBiomeRegions(regionMap: number[][], iterations: number) {
+        for (let iteration = 0; iteration < iterations; iteration += 1) {
+            const snapshot = regionMap.map((row) => [...row]);
+            for (let y = 1; y < this.size - 1; y += 1) {
+                for (let x = 1; x < this.size - 1; x += 1) {
+                    const snapshotRow = snapshot[y];
+                    if (!snapshotRow) continue;
+                    const current = snapshotRow[x];
+                    if (current === undefined) continue;
+                    const counts = new Map<number, number>();
+
+                    // Usar un radio más grande para mayor suavizado
+                    const radius = iteration === 0 ? 1 : 2;
+                    for (let dy = -radius; dy <= radius; dy += 1) {
+                        for (let dx = -radius; dx <= radius; dx += 1) {
+                            const id = snapshot[y + dy]?.[x + dx];
+                            if (id === undefined) continue;
+                            // Dar más peso a celdas más cercanas
+                            const distance = Math.abs(dx) + Math.abs(dy);
+                            const weight = distance === 0 ? 3 : distance === 1 ? 2 : 1;
+                            counts.set(id, (counts.get(id) ?? 0) + weight);
+                        }
+                    }
+
+                    const dominant = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+                    const threshold = iteration === 0 ? 8 : 12; // Umbral más alto para mayor estabilidad
+                    if (dominant && dominant[1] >= threshold && dominant[0] !== current) {
+                        const row = regionMap[y];
+                        if (!row) continue;
+                        row[x] = dominant[0];
+                    }
+                }
+            }
+        }
+    }
+
+    private getBiomeSpread(biome: Terrain): number {
+        switch (biome) {
+            case "ocean":
+                return 0.5; // Más concentrado para evitar dispersión
+            case "beach":
+                return 0.8; // Más cohesivo alrededor del océano
+            case "mountain":
+            case "snow":
+                return 1.4; // Mayor expansión para montañas
+            case "desert":
+                return 1.3; // Desiertos más extensos
+            case "forest":
+                return 1.1; // Bosques ligeramente expansivos
+            case "swamp":
+                return 0.7; // Pantanos más localizados
+            case "river":
+                return 0.3; // Ríos muy localizados
+            default:
+                return 1;
+        }
+    }
+
+    private resolveRegionTerrain(
+        regionBiome: Terrain,
+        localBiome: Terrain,
+        elevation: number,
+        moisture: number
+    ): Terrain {
+        if (regionBiome === localBiome) {
+            return localBiome;
+        }
+
+        // Biomas acuáticos tienen prioridad absoluta para evitar dispersión
+        if (regionBiome === "ocean" || regionBiome === "beach") {
+            return regionBiome;
+        }
+
+        // Transiciones más naturales para montañas
+        if (regionBiome === "snow") {
+            if (elevation > 0.75) return "snow";
+            if (elevation > 0.6) return "tundra";
+            return localBiome; // Transición gradual
+        }
+
+        if (regionBiome === "mountain") {
+            if (elevation > 0.7) return "mountain";
+            if (elevation > 0.5) return elevation > 0.6 ? "tundra" : "grassland";
+            return localBiome;
+        }
+
+        // Transiciones más suaves para desiertos
+        if (regionBiome === "desert") {
+            if (moisture > 0.6) return "grassland"; // Transición a pradera
+            if (moisture > 0.4 && elevation < 0.3) return "grassland";
+            return regionBiome;
+        }
+
+        // Pantanos requieren condiciones específicas
+        if (regionBiome === "swamp") {
+            if (moisture < 0.4 || elevation > 0.5) return localBiome;
+            return regionBiome;
+        }
+
+        // Tundra con transiciones mejoradas
+        if (regionBiome === "tundra") {
+            if (elevation < 0.3) return "grassland";
+            if (elevation < 0.5 && moisture > 0.6) return "forest";
+            return regionBiome;
+        }
+
+        // Bosques con transiciones naturales
+        if (regionBiome === "forest") {
+            if (moisture < 0.2) return "grassland";
+            if (elevation > 0.8) return "tundra";
+            return regionBiome;
+        }
+
+        return regionBiome;
+    }
+
+    private applyExtremeElevationBias(terrain: Terrain, elevation: number, moisture: number): Terrain {
+        // No modificar ríos
+        if (terrain === "river") {
+            return terrain;
+        }
+
+        // Océanos más concentrados y coherentes
+        if (elevation < 0.06) {
+            return "ocean";
+        }
+        if (elevation < 0.1 && (terrain === "ocean" || terrain === "beach")) {
+            return "beach";
+        }
+
+        // Montañas con transiciones más naturales
+        if (elevation > 0.9) {
+            return moisture > 0.3 ? "snow" : "mountain";
+        }
+        if (elevation > 0.8) {
+            if (terrain === "ocean" || terrain === "beach") {
+                return terrain; // Mantener características acuáticas
+            }
+            return moisture > 0.5 ? "snow" : moisture > 0.3 ? "tundra" : "mountain";
+        }
+
+        // Correcciones para coherencia de biomas húmedos
+        if (terrain === "desert" && moisture > 0.6) {
+            return "grassland";
+        }
+        if (terrain === "grassland" && moisture > 0.8 && elevation < 0.7) {
+            return "forest";
+        }
+        if (terrain === "tundra" && elevation < 0.4 && moisture > 0.5) {
+            return "forest";
+        }
+
+        return terrain;
+    }
+
+    private generateRivers(elevationMap: number[][], moistureMap: number[][]): Set<string> {
+        const riverCells = new Set<string>();
+
+        // Encontrar picos de montañas para colocar fuentes de ríos
+        const peaks: Vec2[] = [];
+        for (let y = 2; y < this.size - 2; y += 1) {
+            for (let x = 2; x < this.size - 2; x += 1) {
+                const elevation = elevationMap[y]?.[x];
+                if (elevation === undefined) continue;
+
+                // Solo montañas altas
+                if (elevation < 0.7) continue;
+
+                // Verificar si es un máximo local
+                let isPeak = true;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const neighborElev = elevationMap[y + dy]?.[x + dx];
+                        if (neighborElev !== undefined && neighborElev > elevation) {
+                            isPeak = false;
+                            break;
+                        }
+                    }
+                    if (!isPeak) break;
+                }
+
+                const moisture = moistureMap[y]?.[x] ?? 0;
+                if (isPeak && moisture > 0.34) {
+                    peaks.push({ x, y });
+                }
+            }
+        }
+
+        // Generar ríos desde cada pico
+        for (const peak of peaks) {
+            let current = { ...peak };
+            let waterVolume = 1.0;
+            const visitedCells = new Set<string>();
+            const riverPath: Vec2[] = [];
+
+            // Seguir el río cuesta abajo
+            for (let steps = 0; steps < 100; steps++) {
+                const key = `${current.x},${current.y}`;
+
+                // Evitar bucles
+                if (visitedCells.has(key)) break;
+                visitedCells.add(key);
+                riverPath.push({ ...current });
+
+                const currentElevation = elevationMap[current.y]?.[current.x];
+                if (currentElevation === undefined) break;
+
+                // Si llegamos al océano, terminar
+                if (currentElevation < 0.15) {
+                    break;
+                }
+
+                // Encontrar el vecino más bajo
+                let lowest: Vec2 | null = null;
+                let lowestElevation = currentElevation;
+
+                const neighbors = [
+                    { x: current.x - 1, y: current.y },
+                    { x: current.x + 1, y: current.y },
+                    { x: current.x, y: current.y - 1 },
+                    { x: current.x, y: current.y + 1 },
+                ];
+
+                for (const neighbor of neighbors) {
+                    const neighborElevation = elevationMap[neighbor.y]?.[neighbor.x];
+                    if (neighborElevation !== undefined && neighborElevation < lowestElevation) {
+                        lowestElevation = neighborElevation;
+                        lowest = neighbor;
+                    }
+                }
+
+                // Si no hay pendiente, crear lago/terminar
+                if (!lowest || lowestElevation >= currentElevation * 0.98) {
+                    break;
+                }
+
+                // El agua se evapora gradualmente
+                waterVolume *= 0.95;
+                if (waterVolume < 0.1) break;
+
+                current = lowest;
+            }
+
+            // Solo añadir ríos que sean lo suficientemente largos
+            if (riverPath.length >= 5) {
+                riverPath.forEach(pos => {
+                    riverCells.add(`${pos.x},${pos.y}`);
+                    // Añadir celdas adyacentes para ríos más anchos en elevaciones bajas
+                    const posElev = elevationMap[pos.y]?.[pos.x];
+                    if (posElev !== undefined && posElev < 0.38) {
+                        riverCells.add(`${pos.x + 1},${pos.y}`);
+                        riverCells.add(`${pos.x},${pos.y + 1}`);
+                    }
+                });
+            }
+        }
+
+        return riverCells;
+    }
+}
