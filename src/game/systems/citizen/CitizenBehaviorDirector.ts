@@ -28,17 +28,22 @@ export type BehaviorDecision = {
   source: string;
 };
 
-export class CitizenBehaviorDirector {
-  private readonly aiDispatch: Record<Role, CitizenAI> = {
-    warrior: warriorAI,
-    farmer: farmerAI,
-    worker: workerAI,
-    scout: scoutAI,
-    child: passiveAI,
-    elder: passiveAI,
-  };
+let activeDirector: CitizenBehaviorDirector | null = null;
 
-  constructor(private world: WorldEngine, private hooks: BehaviorHooks) {}
+export class CitizenBehaviorDirector {
+  private readonly aiDispatch: Record<Role, CitizenAI>;
+
+  constructor(private world: WorldEngine, private hooks: BehaviorHooks) {
+    this.aiDispatch = {
+      warrior: warriorAI,
+      farmer: farmerAI,
+      worker: workerAI,
+      scout: scoutAI,
+      child: passiveAI,
+      elder: passiveAI,
+    };
+    activeDirector = this;
+  }
 
   decideAction(citizen: Citizen, view: WorldView): BehaviorDecision {
     const urgent = this.evaluateUrgentNeed(citizen, view);
@@ -123,6 +128,10 @@ export class CitizenBehaviorDirector {
     }
 
     return best;
+  }
+
+  getConstructionDirectiveFor(citizen: Citizen) {
+    return this.world.findClosestConstructionCell({ x: citizen.x, y: citizen.y });
   }
 }
 
@@ -240,7 +249,7 @@ const ensureGathererBrain = (citizen: Citizen, resourceType: "food" | "stone"): 
 
 const findClosestResourceCell = (citizen: Citizen, view: WorldView, resourceType: "food" | "stone") => {
   let closest: (typeof view.cells)[number] | null = null;
-  let minDistance = Infinity;
+  let minScore = Infinity;
 
   for (const cell of view.cells) {
     if (!cell.resource || cell.resource.type !== resourceType) continue;
@@ -249,10 +258,13 @@ const findClosestResourceCell = (citizen: Citizen, view: WorldView, resourceType
     if (resourceType === "food" && amount < MIN_FOOD_NODE_AMOUNT) continue;
 
     const distance = Math.abs(cell.x - citizen.x) + Math.abs(cell.y - citizen.y);
-    if (distance < minDistance) {
-      minDistance = distance;
+    const matchesPriority =
+      (resourceType === "food" && cell.priority === "gather") || (resourceType === "stone" && cell.priority === "mine");
+    const score = distance - (matchesPriority ? 0.75 : 0);
+    if (score < minScore) {
+      minScore = score;
       closest = cell;
-      if (distance === 1) break;
+      if (score <= 0.5) break;
     }
   }
 
@@ -407,6 +419,17 @@ const farmerAI: CitizenAI = (citizen, view) => {
 };
 
 const workerAI: CitizenAI = (citizen, view) => {
+  const directive = activeDirector?.getConstructionDirectiveFor(citizen) ?? null;
+  if (directive) {
+    const needsStone = directive.site.stoneDelivered < directive.site.stoneRequired;
+    if (citizen.carrying.stone > 0 || !needsStone) {
+      if (citizen.x === directive.cell.x && citizen.y === directive.cell.y) {
+        return { type: "construct", siteId: directive.site.id };
+      }
+      return { type: "move", x: directive.cell.x, y: directive.cell.y };
+    }
+    return runGathererBrain(citizen, view, "stone");
+  }
   return runGathererBrain(citizen, view, "stone");
 };
 
