@@ -63,6 +63,9 @@ export class CitizenActionExecutor {
       case "tendCrops":
         this.tendCrop(citizen, action.x, action.y, tickHours);
         break;
+      case "construct":
+        this.constructStructure(citizen, action.siteId, tickHours);
+        break;
     }
   }
 
@@ -75,9 +78,21 @@ export class CitizenActionExecutor {
     const gathered = Math.min(1, cell.resource.amount);
     cell.resource.amount = clamp(cell.resource.amount - gathered, 0, 10);
     if (type === "food") {
+      const isFarmPlot = cell.cropProgress > 0 || cell.priority === "farm";
       citizen.carrying.food += Math.floor(gathered * efficiency);
-      if (cell.cropProgress >= 1) {
-        cell.cropProgress = 0;
+      if (isFarmPlot) {
+        const harvestDrain = 0.35 * gathered;
+        cell.cropProgress = clamp(cell.cropProgress - harvestDrain, 0, 1.5);
+      }
+      if (cell.resource.amount <= 0) {
+        if (isFarmPlot || !cell.resource.renewable) {
+          cell.resource = undefined;
+        } else {
+          cell.resource.amount = 0;
+        }
+        if (isFarmPlot) {
+          cell.cropProgress = 0;
+        }
       }
     } else if (type === "stone") {
       citizen.carrying.stone += gathered;
@@ -152,6 +167,30 @@ export class CitizenActionExecutor {
     citizen.fatigue = clamp(citizen.fatigue + 1, 0, 100);
     if (cell.cropProgress >= 1 && !cell.resource) {
       cell.resource = { type: "food", amount: 2, renewable: true, richness: cell.fertility };
+    }
+  }
+
+  private constructStructure(citizen: Citizen, siteId: number, tickHours: number) {
+    const labor = 3 * tickHours;
+    const availableStone = citizen.carrying.stone;
+    const stoneSpend = availableStone > 0 ? Math.min(1, availableStone) : 0;
+    const result = this.world.applyConstructionWork(siteId, labor, stoneSpend);
+    if (!result.applied) {
+      citizen.fatigue = clamp(citizen.fatigue + 0.5 * tickHours, 0, 100);
+      return;
+    }
+    if (result.stoneUsed && result.stoneUsed > 0) {
+      citizen.carrying.stone = Math.max(0, citizen.carrying.stone - result.stoneUsed);
+    }
+    citizen.fatigue = clamp(citizen.fatigue + 2 * tickHours, 0, 100);
+    citizen.morale = clamp(citizen.morale + 0.2, 0, 100);
+    if (result.completed && result.site) {
+      const location = formatCoords(result.site.anchor.x, result.site.anchor.y);
+      this.hooks.emit({
+        type: "log",
+        message: `Se completó ${result.site.type} en ${location}.`,
+        notificationType: "success",
+      });
     }
   }
 
