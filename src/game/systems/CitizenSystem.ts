@@ -80,7 +80,7 @@ export class CitizenSystem {
         this.finalizeCitizenDeath(citizen);
         continue;
       }
-      const view = this.world.getView(citizen, 5);
+      const view = this.world.getView(citizen, 15);
       const decision = this.behaviorDirector.decideAction(citizen, view);
       this.actionExecutor.execute(citizen, decision, tickHours, {
         debugLogging: this.debugLogging,

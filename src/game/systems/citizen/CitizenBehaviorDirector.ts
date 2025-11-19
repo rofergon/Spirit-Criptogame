@@ -276,6 +276,15 @@ const farmerAI: CitizenAI = (citizen, view) => {
   if (activeGatherEngine) {
     return activeGatherEngine.runGathererBrain(citizen, view, "food");
   }
+
+  // Fallback: Global search for farm tasks
+  if (activeDirector?.world) {
+    const globalFarm = activeDirector.world.findClosestMarkedCell({ x: citizen.x, y: citizen.y }, "farm");
+    if (globalFarm) {
+      return { type: "move", x: globalFarm.x, y: globalFarm.y };
+    }
+  }
+
   return wanderCitizen(citizen);
 };
 
@@ -379,6 +388,42 @@ const workerAI: CitizenAI = (citizen, view) => {
       return gatherEngine.runGathererBrain(citizen, view, "stone");
     }
   }
+  // Fallback: Global search for construction or resources
+  if (activeDirector?.world) {
+    const world = activeDirector.world;
+    // Check for any active construction site globally
+    const sites = world.getActiveConstructionSites();
+    if (sites.length > 0) {
+      // Find closest site
+      let closestSite = sites[0];
+      let minDist = Infinity;
+      sites.forEach(site => {
+        const dist = Math.abs(site.anchor.x - citizen.x) + Math.abs(site.anchor.y - citizen.y);
+        if (dist < minDist) {
+          minDist = dist;
+          closestSite = site;
+        }
+      });
+      if (closestSite) {
+        return { type: "move", x: closestSite.anchor.x, y: closestSite.anchor.y };
+      }
+    }
+
+    // Check for marked resources globally
+    const globalWood = world.findClosestMarkedCell({ x: citizen.x, y: citizen.y }, "gather", "wood");
+    const globalStone = world.findClosestMarkedCell({ x: citizen.x, y: citizen.y }, "mine", "stone");
+
+    if (globalWood && globalStone) {
+      // Simple distance check for fallback
+      const dWood = Math.abs(globalWood.x - citizen.x) + Math.abs(globalWood.y - citizen.y);
+      const dStone = Math.abs(globalStone.x - citizen.x) + Math.abs(globalStone.y - citizen.y);
+      if (dStone < dWood) return { type: "move", x: globalStone.x, y: globalStone.y };
+      return { type: "move", x: globalWood.x, y: globalWood.y };
+    }
+    if (globalWood) return { type: "move", x: globalWood.x, y: globalWood.y };
+    if (globalStone) return { type: "move", x: globalStone.x, y: globalStone.y };
+  }
+
   return wanderCitizen(citizen);
 };
 

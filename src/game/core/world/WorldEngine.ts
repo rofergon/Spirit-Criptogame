@@ -291,4 +291,24 @@ export class WorldEngine {
     this.stockpile[type] -= used;
     return used;
   }
+  findClosestMarkedCell(origin: Vec2, priority: PriorityMark, resourceType?: string): Vec2 | null {
+    let best: Vec2 | null = null;
+    let minDistance = Infinity;
+
+    for (let y = 0; y < this.size; y++) {
+      for (let x = 0; x < this.size; x++) {
+        const cell = this.cells[y]?.[x];
+        if (!cell) continue;
+        if (cell.priority !== priority) continue;
+        if (resourceType && cell.resource?.type !== resourceType) continue;
+
+        const distance = Math.abs(cell.x - origin.x) + Math.abs(cell.y - origin.y);
+        if (distance < minDistance) {
+          minDistance = distance;
+          best = { x: cell.x, y: cell.y };
+        }
+      }
+    }
+    return best;
+  }
 }
