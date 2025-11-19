@@ -25,7 +25,7 @@ export class CitizenSystem {
   private elapsedHours = 0;
   private playerTribeId = 1;
 
-  constructor(private world: WorldEngine, private emit: (event: CitizenSystemEvent) => void = () => {}) {
+  constructor(private world: WorldEngine, private emit: (event: CitizenSystemEvent) => void = () => { }) {
     this.repository = new CitizenRepository(world);
     this.needsSimulator = new CitizenNeedsSimulator(world, {
       inflictDamage: (citizen, amount, cause) => this.inflictDamage(citizen, amount, cause),
@@ -92,15 +92,28 @@ export class CitizenSystem {
   }
 
   spawnMigrants(attitude: "neutral" | "friendly" | "hostile") {
-    const entryY = Math.floor(Math.random() * this.world.size);
+    const entry = this.findValidSpawnPoint("left");
+    if (!entry) {
+      this.emit({ type: "log", message: "Un grupo de viajeros pasó de largo (sin ruta segura)." });
+      return;
+    }
+
     for (let i = 0; i < 3; i += 1) {
       const role: Role = attitude === "hostile" ? "warrior" : "worker";
       const tribeId = attitude === "hostile" ? 99 : this.playerTribeId;
-      const citizen = this.createCitizen(role, 0, clamp(entryY + i, 0, this.world.size - 1), tribeId);
-      citizen.morale = 50;
-      citizen.health = 70;
-      citizen.currentGoal = attitude === "hostile" ? "raid" : "settle";
-      this.addCitizen(citizen);
+      // Intentar colocar cerca del punto de entrada
+      const offsetX = Math.floor(Math.random() * 3);
+      const offsetY = Math.floor(Math.random() * 3);
+      const x = clamp(entry.x + offsetX, 0, this.world.size - 1);
+      const y = clamp(entry.y + offsetY, 0, this.world.size - 1);
+
+      if (this.world.isWalkable(x, y)) {
+        const citizen = this.createCitizen(role, x, y, tribeId);
+        citizen.morale = 50;
+        citizen.health = 70;
+        citizen.currentGoal = attitude === "hostile" ? "raid" : "settle";
+        this.addCitizen(citizen);
+      }
     }
     this.emit({
       type: "log",
@@ -109,15 +122,46 @@ export class CitizenSystem {
   }
 
   spawnBeasts() {
-    const entryX = Math.floor(Math.random() * this.world.size);
+    const entry = this.findValidSpawnPoint("bottom");
+    if (!entry) return;
+
     for (let i = 0; i < 2; i += 1) {
-      const beast = this.createCitizen("warrior", clamp(entryX + i, 0, this.world.size - 1), this.world.size - 1, 120);
-      beast.health = 60;
-      beast.morale = 100;
-      beast.currentGoal = "beast";
-      this.addCitizen(beast);
+      const offsetX = Math.floor(Math.random() * 3);
+      const x = clamp(entry.x + offsetX, 0, this.world.size - 1);
+      const y = clamp(entry.y, 0, this.world.size - 1);
+
+      if (this.world.isWalkable(x, y)) {
+        const beast = this.createCitizen("warrior", x, y, 120);
+        beast.health = 60;
+        beast.morale = 100;
+        beast.currentGoal = "beast";
+        this.addCitizen(beast);
+      }
     }
     this.emit({ type: "log", message: "Bestias salvajes merodean la frontera." });
+  }
+
+  private findValidSpawnPoint(edge: "left" | "bottom"): Vec2 | null {
+    const size = this.world.size;
+    const attempts = 20;
+
+    for (let i = 0; i < attempts; i++) {
+      let x = 0;
+      let y = 0;
+
+      if (edge === "left") {
+        x = 0;
+        y = Math.floor(Math.random() * size);
+      } else {
+        x = Math.floor(Math.random() * size);
+        y = size - 1;
+      }
+
+      if (this.world.isWalkable(x, y)) {
+        return { x, y };
+      }
+    }
+    return null;
   }
 
   tryBlessCitizens(cells: Vec2[]) {
