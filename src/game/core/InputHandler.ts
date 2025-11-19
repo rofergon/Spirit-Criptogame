@@ -20,11 +20,7 @@ export class InputHandler {
     this.justPressed.delete(event.code);
   };
 
-  getDirection(): Vec2 {
-    const x = Number(this.isPressed("ArrowRight") || this.isPressed("KeyD")) - Number(this.isPressed("ArrowLeft") || this.isPressed("KeyA"));
-    const y = Number(this.isPressed("ArrowDown") || this.isPressed("KeyS")) - Number(this.isPressed("ArrowUp") || this.isPressed("KeyW"));
-    return { x, y };
-  }
+
 
   consumeKey(code: string) {
     if (this.justPressed.has(code)) {

@@ -12,17 +12,17 @@ describe("SimulationSession", () => {
 
     const world = session.getWorld();
     const citizensBefore = session.getCitizenSystem().getCitizens().length;
-    const powerBefore = session.getPlayer().power;
+    const stockpileBefore = world.stockpile.food;
 
-    session.runTick(1, { moveIntent: { x: 1, y: 0 }, priority: "explore" });
-    session.runTick(1, { moveIntent: { x: -1, y: 0 }, priority: "mine" });
+    session.runTick(1, { priority: "explore" });
+    session.runTick(1, { priority: "mine" });
 
     const citizensAfter = session.getCitizenSystem().getCitizens().length;
-    const powerAfter = session.getPlayer().power;
+    const stockpileAfter = world.stockpile.food;
 
     expect(world.size).toBe(16);
     expect(citizensAfter).toBeGreaterThanOrEqual(citizensBefore);
-    expect(powerAfter).toBeGreaterThanOrEqual(powerBefore);
+    expect(stockpileAfter).toBeGreaterThanOrEqual(0); // La comida puede bajar, pero debe ser un número válido
     expect(logs.length).toBeGreaterThan(0);
   });
 });
