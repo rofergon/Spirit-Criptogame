@@ -1,5 +1,5 @@
 import { clamp } from "./utils";
-import type { ClimateState, PriorityMark, ResourceTrend, Role, ToastNotification, Vec2 } from "./types";
+import type { ClimateState, PriorityMark, ResourceTrend, Role, StructureType, ToastNotification, Vec2 } from "./types";
 import { PlayerSpirit } from "./PlayerSpirit";
 import { WorldEngine } from "./world/WorldEngine";
 import { CitizenSystem, type CitizenSystemEvent } from "../systems/CitizenSystem";
@@ -132,6 +132,23 @@ export class SimulationSession {
     this.log("Se ha elevado un tótem espiritual.");
   }
 
+  planConstruction(type: StructureType, anchor: Vec2) {
+    if (!this.initialized) {
+      return { ok: false as const, reason: "El mundo no está listo." };
+    }
+    const available = this.getAvailableStructures();
+    if (!available.includes(type)) {
+      return { ok: false as const, reason: "Estructura bloqueada." };
+    }
+    const result = this.world.planStructure(type, anchor);
+    if (!result.ok) {
+      this.log(`No se pudo planificar ${type}: ${result.reason}`);
+      return result;
+    }
+    this.log(`Se ha trazado el plano de ${type} en (${anchor.x},${anchor.y}).`, "info");
+    return result;
+  }
+
   getWorld() {
     return this.world;
   }
@@ -142,6 +159,24 @@ export class SimulationSession {
 
   getCitizenSystem() {
     return this.citizenSystem;
+  }
+
+  getAvailableStructures() {
+    if (!this.initialized) return [];
+    const population = this.citizenSystem.getPopulationCount(
+      (citizen) => citizen.state === "alive" && citizen.tribeId === this.playerTribeId,
+    );
+    const unlocked: StructureType[] = ["campfire", "house"];
+    if (population >= 5) {
+      unlocked.push("granary");
+    }
+    if (population >= 8) {
+      unlocked.push("tower");
+    }
+    if (population >= 12) {
+      unlocked.push("temple");
+    }
+    return unlocked;
   }
 
   getClimate() {
