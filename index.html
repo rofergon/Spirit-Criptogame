@@ -85,11 +85,51 @@
             <p class="role-note">Los niños y ancianos no se reasignan automáticamente.</p>
           </section>
 
+          <section class="panel-block" id="planning-panel">
+            <h2>Planificación</h2>
+            <div class="planning-modes" role="group" aria-label="Modos de planificación">
+              <button type="button" class="planning-button" data-planning-mode="farm" title="Planificar cultivos (F)">
+                🌾 Cultivos
+              </button>
+              <button type="button" class="planning-button" data-planning-mode="mine" title="Planificar canteras (M)">
+                🪨 Minería
+              </button>
+              <button type="button" class="planning-button" data-planning-mode="gather" title="Planificar recolección (G)">
+                🍃 Recolección
+              </button>
+              <button
+                type="button"
+                class="planning-button"
+                data-planning-mode="build"
+                title="Modo construcción (B) · usa [ ] para cambiar edificio"
+              >
+                🧱 Construcción
+              </button>
+            </div>
+            <div class="planning-build-selector collapsed" id="build-selector" aria-hidden="true">
+              <div class="planning-selector-row">
+                <span class="selector-label">Edificio:</span>
+                <div class="planning-selector-controls">
+                  <button type="button" class="planning-cycle-btn" id="build-prev" title="Edificio anterior ([)">
+                    ◀
+                  </button>
+                  <span class="planning-selector-name" id="build-name">Ninguno</span>
+                  <button type="button" class="planning-cycle-btn" id="build-next" title="Edificio siguiente (])">
+                    ▶
+                  </button>
+                </div>
+              </div>
+              <small class="planning-status" id="build-status">Aumenta la población para desbloquear edificios.</small>
+            </div>
+            <p class="planning-hint" id="planning-hint">Selecciona un modo para empezar a marcar zonas.</p>
+          </section>
+
           <section class="panel-block" id="instructions">
             <h2>Controles</h2>
             <ul>
               <li>WASD / Flechas: mover al espíritu (3×3 celdas).</li>
               <li>1 Explorar · 2 Defender · 3 Farmear · 4 Minar · 0 limpiar.</li>
+              <li>Panel de Planificación o teclas F/M/G/B para pintar zonas. Usa [ y ] para cambiar de edificio.</li>
               <li>Rueda sobre el mapa o usa + / − para hacer zoom.</li>
               <li>Arrastra con el click medio para desplazar el mapa.</li>
               <li>E / Espacio: bendecir. T: invocar tótem.</li>

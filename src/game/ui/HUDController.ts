@@ -146,6 +146,8 @@ export class HUDController {
         <h1>Espíritu Guardián</h1>
         <p>WASD o flechas: moverte (3×3 celdas).</p>
         <p>1 Explorar · 2 Defender · 3 Farmear · 4 Minar · 0 limpiar prioridad.</p>
+        <p>Panel "Planificación" o teclas F/M/G/B para marcar cultivos, minas, recolección o construcción (usa [ y ] para cambiar edificio).</p>
+        <p>Haz clic izquierdo sobre el mapa para pintar o colocar planos; arrastra para cubrir varias celdas.</p>
         <p>Rueda sobre el mapa o usa los botones +/- para acercar o alejar.</p>
         <p>Mantén el click medio y arrastra para desplazar la cámara.</p>
         <p>E / Espacio: bendecir habitante cercano. T: invocar tótem.</p>
