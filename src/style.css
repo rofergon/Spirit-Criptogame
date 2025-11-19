@@ -30,6 +30,9 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  column-gap: 1.5rem;
+  row-gap: 0.75rem;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(10px);
   z-index: 100;
@@ -39,6 +42,7 @@ body {
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-shrink: 0;
 }
 
 .game-title {
@@ -53,10 +57,48 @@ body {
   text-shadow: 0 2px 8px rgba(247, 200, 125, 0.3);
 }
 
+.header-stats {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.1rem;
+  min-width: 0;
+}
+
+.hud-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0;
+  background: transparent;
+  border: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: inherit;
+}
+
+.hud-pill-icon {
+  font-size: 1.1rem;
+}
+
+.hud-pill-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-pill-value[data-label]::after {
+  content: " " attr(data-label);
+  font-size: 0.85rem;
+  letter-spacing: 0.03em;
+  text-transform: none;
+  opacity: 0.85;
+}
+
 .header-nav {
   display: flex;
   gap: 0.75rem;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .header-btn {
@@ -227,26 +269,6 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: rgba(255, 237, 196, 0.9);
-}
-
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.4rem 0.8rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.stat-grid span[data-label]::before {
-  content: attr(data-label);
-  display: block;
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.55);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 0.2rem;
-  font-weight: 400;
 }
 
 .role-control {

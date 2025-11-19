@@ -692,10 +692,12 @@ export class Game {
     const player = this.simulation.getPlayer();
     const citizenSystem = this.simulation.getCitizenSystem();
     const world = this.simulation.getWorld();
+    const citizens = citizenSystem.getCitizens();
+    const livingPopulation = citizens.filter((citizen) => citizen.state === "alive").length;
     const hudSnapshot: HUDSnapshot = {
       power: player.power,
       population: {
-        value: citizenSystem.getPopulationCount((citizen) => citizen.state === "alive" && citizen.tribeId === 1),
+        value: livingPopulation,
         trend: this.simulation.getResourceTrendAverage("population"),
       },
       climate: this.simulation.getClimate(),

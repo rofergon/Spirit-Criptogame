@@ -21,6 +21,7 @@ export class CitizenSystem {
   private readonly actionExecutor: CitizenActionExecutor;
   private debugLogging = true;
   private elapsedHours = 0;
+  private playerTribeId = 1;
 
   constructor(private world: WorldEngine, private emit: (event: CitizenSystemEvent) => void = () => {}) {
     this.repository = new CitizenRepository(world);
@@ -43,6 +44,7 @@ export class CitizenSystem {
   }
 
   init(roles: Role[], tribeId: number) {
+    this.playerTribeId = tribeId;
     roles.forEach((role) => {
       const position = this.findSpawnNearVillage();
       const citizen = this.createCitizen(role, position.x, position.y, tribeId);
@@ -90,7 +92,8 @@ export class CitizenSystem {
     const entryY = Math.floor(Math.random() * this.world.size);
     for (let i = 0; i < 3; i += 1) {
       const role: Role = attitude === "hostile" ? "warrior" : "worker";
-      const citizen = this.createCitizen(role, 0, clamp(entryY + i, 0, this.world.size - 1), attitude === "hostile" ? 99 : 2);
+      const tribeId = attitude === "hostile" ? 99 : this.playerTribeId;
+      const citizen = this.createCitizen(role, 0, clamp(entryY + i, 0, this.world.size - 1), tribeId);
       citizen.morale = 50;
       citizen.health = 70;
       citizen.currentGoal = attitude === "hostile" ? "raid" : "settle";

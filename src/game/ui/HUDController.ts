@@ -37,10 +37,18 @@ export class HUDController {
     }
 
     if (this.hudClimate) {
+      let icon = "⛅";
       let label = "Clima templado";
-      if (snapshot.climate.drought) label = "🌵 Sequía";
-      if (snapshot.climate.rainy) label = "🌧️ Lluvia";
-      this.hudClimate.textContent = label;
+      if (snapshot.climate.drought) {
+        icon = "🌵";
+        label = "Sequía";
+      } else if (snapshot.climate.rainy) {
+        icon = "🌧️";
+        label = "Lluvia";
+      }
+      this.hudClimate.textContent = `${icon} ${label}`;
+      this.hudClimate.setAttribute("title", label);
+      this.hudClimate.setAttribute("aria-label", label);
     }
 
     if (this.hudFood) {
