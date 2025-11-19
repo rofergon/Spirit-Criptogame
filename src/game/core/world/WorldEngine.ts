@@ -62,11 +62,13 @@ export class WorldEngine {
   private structures: Array<{ type: StructureType; x: number; y: number }> = [];
   private constructionSites = new Map<number, ConstructionSite>();
   private nextConstructionId = 1;
+  private readonly worldSeed: number;
   private rng: () => number;
   private pathCache = new Map<string, PathCacheEntry>();
 
   constructor(size = WORLD_SIZE, seed = Date.now()) {
     this.size = size;
+    this.worldSeed = seed;
     this.rng = mulberry32(seed);
     this.cells = this.generateTerrain(seed);
     this.villageCenter = this.placeVillageCenter();
@@ -139,7 +141,7 @@ export class WorldEngine {
         }
         
         const fertility = this.calculateFertility(terrain, moisture);
-        const resource = this.generateResource(terrain, x, y);
+        const resource = this.generateResource(terrain, fertility, x, y);
 
         const cell: WorldCell = {
           x,
@@ -528,49 +530,75 @@ export class WorldEngine {
     return terrain;
   }
 
-  private generateResource(terrain: Terrain, x: number, y: number): ResourceNode | undefined {
-    const roll = this.rng();
+  private getFoodZoneStrength(fertility: number, x: number, y: number) {
+    const hotspotNoise = this.multiOctaveNoise(
+      x + 4000,
+      y + 4000,
+      (this.worldSeed ^ 0xb5297a4d) >>> 0,
+      [
+        { freq: 0.4, amp: 1 },
+        { freq: 0.8, amp: 0.5 },
+        { freq: 1.6, amp: 0.25 },
+      ]
+    );
+    return clamp(hotspotNoise * 0.6 + fertility * 0.4, 0, 1);
+  }
+
+  private isFoodHotspot(terrain: Terrain, fertility: number, x: number, y: number) {
+    if (terrain !== "grassland" && terrain !== "forest" && terrain !== "swamp") {
+      return false;
+    }
+    const zoneStrength = this.getFoodZoneStrength(fertility, x, y);
+    return zoneStrength > 0.82;
+  }
+
+  private generateResource(terrain: Terrain, fertility: number, x: number, y: number): ResourceNode | undefined {
+    const richnessRoll = this.rng();
+    const yieldRoll = this.rng();
     
     switch (terrain) {
       case "grassland":
-        if (roll > 0.65) {
-          return { type: "food", amount: 3 + Math.floor(roll * 4), renewable: true, richness: 1 };
+        if (this.isFoodHotspot(terrain, fertility, x, y)) {
+          const amount = 2 + Math.floor(richnessRoll * 3);
+          return { type: "food", amount, renewable: true, richness: 1 };
         }
         break;
       
       case "forest":
-        if (roll > 0.5) {
-          return { type: "food", amount: 4 + Math.floor(roll * 6), renewable: true, richness: 1.2 };
+        if (this.isFoodHotspot(terrain, fertility, x, y)) {
+          const amount = 3 + Math.floor(richnessRoll * 4);
+          return { type: "food", amount, renewable: true, richness: 1.2 };
         }
         break;
       
       case "swamp":
-        if (roll > 0.7) {
-          return { type: "food", amount: 2 + Math.floor(roll * 3), renewable: true, richness: 0.8 };
+        if (this.isFoodHotspot(terrain, fertility, x, y) && yieldRoll > 0.2) {
+          const amount = 1 + Math.floor(richnessRoll * 2);
+          return { type: "food", amount, renewable: true, richness: 0.8 };
         }
         break;
       
       case "mountain":
-        if (roll > 0.5) {
-          return { type: "stone", amount: 5 + Math.floor(roll * 8), renewable: false, richness: 1.3 };
+        if (yieldRoll > 0.5) {
+          return { type: "stone", amount: 5 + Math.floor(richnessRoll * 8), renewable: false, richness: 1.3 };
         }
         break;
       
       case "tundra":
-        if (roll > 0.8) {
-          return { type: "stone", amount: 3 + Math.floor(roll * 4), renewable: false, richness: 0.8 };
+        if (yieldRoll > 0.8) {
+          return { type: "stone", amount: 3 + Math.floor(richnessRoll * 4), renewable: false, richness: 0.8 };
         }
         break;
       
       case "desert":
-        if (roll > 0.9) {
+        if (yieldRoll > 0.9) {
           return { type: "stone", amount: 2, renewable: false, richness: 0.4 };
         }
         break;
       
       case "river":
       case "ocean":
-        if (roll > 0.6) {
+        if (yieldRoll > 0.6) {
           return { type: "waterSpring", amount: 6, renewable: true, richness: 1.5 };
         }
         break;
@@ -1218,10 +1246,6 @@ export class WorldEngine {
             1
           );
           
-          // Regeneración de recursos en biomas fértiles
-          if (!cell.resource && Math.random() < cell.fertility * 0.001) {
-            cell.resource = { type: "food", amount: 2, renewable: true, richness: cell.fertility };
-          }
         }
 
         // Crecimiento de recursos renovables
