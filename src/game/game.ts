@@ -1,7 +1,7 @@
 import { HOURS_PER_SECOND, PRIORITY_KEYMAP, TICK_HOURS, WORLD_SIZE } from "./core/constants";
 import { InputHandler } from "./core/InputHandler";
 import { clamp } from "./core/utils";
-import type { Citizen, PriorityMark, Role, ToastNotification, Vec2 } from "./core/types";
+import type { Citizen, PriorityMark, Role, StructureType, ToastNotification, Vec2 } from "./core/types";
 import { SimulationSession } from "./core/SimulationSession";
 import { CameraController } from "./core/CameraController";
 import { HUDController, type HUDSnapshot } from "./ui/HUDController";
@@ -44,6 +44,17 @@ export class Game {
 
   private selectedCitizen: Citizen | null = null;
   private hoveredCell: Vec2 | null = null;
+  private planningPriority: PriorityMark | null = null;
+  private planningStrokeActive = false;
+  private planningStrokeCells = new Set<string>();
+  private selectedStructureType: StructureType | null = null;
+  private planningButtons: HTMLButtonElement[] = [];
+  private buildSelector = document.querySelector<HTMLDivElement>("#build-selector");
+  private structurePrevButton = document.querySelector<HTMLButtonElement>("#build-prev");
+  private structureNextButton = document.querySelector<HTMLButtonElement>("#build-next");
+  private structureLabel = document.querySelector<HTMLSpanElement>("#build-name");
+  private structureStatusLabel = document.querySelector<HTMLSpanElement>("#build-status");
+  private planningHintLabel = document.querySelector<HTMLParagraphElement>("#planning-hint");
 
   private zoom = 1;
   private readonly minZoom = 0.75;
@@ -68,6 +79,7 @@ export class Game {
     this.setupZoomControls();
     this.setupRoleControls();
     this.setupSpeedControls();
+    this.setupPlanningControls();
     this.bindCanvasEvents();
     this.debugExportButton?.addEventListener("click", this.exportDebugLog);
 
@@ -93,6 +105,7 @@ export class Game {
       onExtinction: this.handleExtinction,
     });
     this.simulation.initialize(config);
+    this.refreshStructureSelection();
     this.extinctionAnnounced = false;
 
     const player = this.simulation.getPlayer();
@@ -209,6 +222,43 @@ export class Game {
       });
     });
     this.updateSpeedButtons();
+  }
+
+  private setupPlanningControls() {
+    const panel = document.querySelector<HTMLDivElement>("#planning-panel");
+    this.planningButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-planning-mode]"));
+
+    const handlePlanningClick = (event: Event) => {
+      const target = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-planning-mode]");
+      if (!target) {
+        return;
+      }
+      event.preventDefault();
+      const mode = target.dataset.planningMode;
+      if (!mode) {
+        return;
+      }
+      this.togglePlanningPriority(mode as PriorityMark);
+    };
+
+    if (panel) {
+      panel.addEventListener("click", handlePlanningClick);
+    } else {
+      this.planningButtons.forEach((button) => {
+        button.addEventListener("click", handlePlanningClick);
+      });
+    }
+
+    this.structurePrevButton?.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.cycleStructureSelection(-1);
+    });
+    this.structureNextButton?.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.cycleStructureSelection(1);
+    });
+
+    this.updatePlanningUI();
   }
 
   private setSpeedMultiplier(multiplier: number) {
@@ -329,6 +379,8 @@ export class Game {
     if (this.input.consumeKey("KeyT")) {
       this.dropTotem();
     }
+
+    this.handlePlanningShortcuts();
   }
 
   private runTick(tickHours: number) {
@@ -369,8 +421,238 @@ export class Game {
     this.simulation.dropTotem();
   }
 
+  private handlePlanningShortcuts() {
+    if (!this.gameInitialized) {
+      return;
+    }
+    const bindings: Array<{ key: string; priority: PriorityMark }> = [
+      { key: "KeyF", priority: "farm" },
+      { key: "KeyM", priority: "mine" },
+      { key: "KeyG", priority: "gather" },
+      { key: "KeyB", priority: "build" },
+    ];
+    for (const binding of bindings) {
+      if (this.input.consumeKey(binding.key)) {
+        this.togglePlanningPriority(binding.priority);
+        return;
+      }
+    }
+    if (this.input.consumeKey("Escape")) {
+      this.setPlanningPriority(null);
+    }
+    if (this.planningPriority === "build") {
+      if (this.input.consumeKey("BracketRight")) {
+        this.cycleStructureSelection(1);
+      } else if (this.input.consumeKey("BracketLeft")) {
+        this.cycleStructureSelection(-1);
+      }
+    }
+  }
+
+  private togglePlanningPriority(priority: PriorityMark) {
+    if (this.planningPriority === priority) {
+      this.setPlanningPriority(null);
+    } else {
+      this.setPlanningPriority(priority);
+    }
+  }
+
+  private setPlanningPriority(priority: PriorityMark | null) {
+    if (this.planningPriority === priority) {
+      return;
+    }
+    if (priority === "build") {
+      this.refreshStructureSelection();
+      if (!this.selectedStructureType) {
+        this.logEvent("Aún no hay edificios desbloqueados.", "warning");
+        this.updatePlanningUI();
+        return;
+      }
+    }
+    this.planningPriority = priority;
+    this.planningStrokeCells.clear();
+    if (!priority) {
+      this.planningStrokeActive = false;
+    }
+    this.updatePlanningUI();
+    if (priority) {
+      this.logEvent(`Modo planificación: ${this.getPlanningLabel(priority)}`);
+    } else {
+      this.logEvent("Modo planificación desactivado.");
+    }
+  }
+
+  private getPlanningLabel(priority: PriorityMark) {
+    switch (priority) {
+      case "farm":
+        return "Cultivos";
+      case "mine":
+        return "Minas";
+      case "gather":
+        return "Recolecta";
+      case "build":
+        return `Construcción (${this.selectedStructureType ? this.getStructureDisplayName(this.selectedStructureType) : "?"})`;
+      case "explore":
+        return "Explorar";
+      case "defend":
+        return "Defensa";
+      default:
+        return "General";
+    }
+  }
+
+  private updatePlanningUI() {
+    const available = this.simulation?.getAvailableStructures() ?? [];
+    const hasStructures = available.length > 0;
+    this.planningButtons.forEach((button) => {
+      const mode = button.dataset.planningMode as PriorityMark | undefined;
+      if (!mode) return;
+      const isActive = this.planningPriority === mode;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      if (mode === "build") {
+        button.disabled = !hasStructures;
+        if (!hasStructures) {
+          button.title = "Sigue creciendo para desbloquear edificios.";
+        } else {
+          button.title = "Modo construcción (B) · usa [ y ] para cambiar edificio";
+        }
+      }
+    });
+
+    if (this.buildSelector) {
+      const visible = this.planningPriority === "build" && hasStructures;
+      this.buildSelector.classList.toggle("collapsed", !visible);
+      this.buildSelector.setAttribute("aria-hidden", visible ? "false" : "true");
+    }
+
+    if (this.structurePrevButton) {
+      this.structurePrevButton.disabled = !hasStructures || available.length <= 1;
+    }
+    if (this.structureNextButton) {
+      this.structureNextButton.disabled = !hasStructures || available.length <= 1;
+    }
+
+    if (this.structureLabel) {
+      this.structureLabel.textContent = this.selectedStructureType ? this.getStructureDisplayName(this.selectedStructureType) : hasStructures ? this.getStructureDisplayName(available[0]!) : "Ninguno";
+    }
+
+    if (this.structureStatusLabel) {
+      if (!hasStructures) {
+        this.structureStatusLabel.textContent = "Aumenta la población para desbloquear edificios.";
+      } else {
+        const index = this.selectedStructureType ? available.indexOf(this.selectedStructureType) : -1;
+        if (index >= 0) {
+          this.structureStatusLabel.textContent = `Plano ${index + 1}/${available.length} desbloqueado.`;
+        } else {
+          this.structureStatusLabel.textContent = `${available.length} plano(s) listos para construir.`;
+        }
+      }
+    }
+
+    if (this.planningHintLabel) {
+      this.planningHintLabel.textContent = this.planningPriority
+        ? `Planificando ${this.getPlanningLabel(this.planningPriority)}. Haz clic izquierdo para aplicar y arrastra para pintar.`
+        : "Selecciona un modo para empezar a marcar zonas.";
+    }
+  }
+
+  private getStructureDisplayName(type: StructureType) {
+    switch (type) {
+      case "campfire":
+        return "🔥 Hoguera";
+      case "house":
+        return "🏠 Casa comunal";
+      case "granary":
+        return "🏪 Granero";
+      case "tower":
+        return "🗼 Torre vigía";
+      case "temple":
+        return "⛪ Templo";
+      case "village":
+        return "🏛️ Aldea";
+      default:
+        return type;
+    }
+  }
+
+  private cycleStructureSelection(direction: number) {
+    if (!this.simulation) {
+      return;
+    }
+    const available = this.simulation.getAvailableStructures();
+    if (available.length === 0) {
+      this.logEvent("No hay edificios disponibles todavía.", "warning");
+      return;
+    }
+    if (!this.selectedStructureType || !available.includes(this.selectedStructureType)) {
+      const fallback = available[0];
+      if (!fallback) {
+        return;
+      }
+      this.selectedStructureType = fallback;
+    } else {
+      let index = available.indexOf(this.selectedStructureType);
+      index = (index + direction + available.length) % available.length;
+      const next = available[index] ?? available[0];
+      if (!next) {
+        return;
+      }
+      this.selectedStructureType = next;
+    }
+    this.updatePlanningUI();
+    this.logEvent(`Estructura seleccionada: ${this.selectedStructureType}.`);
+  }
+
+  private refreshStructureSelection() {
+    if (!this.simulation) {
+      this.selectedStructureType = null;
+      this.updatePlanningUI();
+      return;
+    }
+    const available = this.simulation.getAvailableStructures();
+    if (available.length === 0) {
+      this.selectedStructureType = null;
+      this.updatePlanningUI();
+      return;
+    }
+    if (!this.selectedStructureType || !available.includes(this.selectedStructureType)) {
+      const fallback = available[0];
+      this.selectedStructureType = fallback ?? null;
+    }
+    this.updatePlanningUI();
+  }
+
+  private applyPlanningAtCell(cell: Vec2) {
+    if (!this.simulation || !this.planningPriority || this.planningPriority === "build") {
+      return;
+    }
+    const key = `${cell.x},${cell.y}`;
+    if (this.planningStrokeCells.has(key)) {
+      return;
+    }
+    this.planningStrokeCells.add(key);
+    this.simulation.getWorld().setPriorityAt(cell.x, cell.y, this.planningPriority);
+  }
+
+  private applyStructurePlan(cell: Vec2) {
+    if (!this.simulation || this.planningPriority !== "build") {
+      return;
+    }
+    this.refreshStructureSelection();
+    if (!this.selectedStructureType) {
+      this.logEvent("No hay estructuras disponibles para construir.", "warning");
+      return;
+    }
+    const result = this.simulation.planConstruction(this.selectedStructureType, cell);
+    if (!result.ok) {
+      this.logEvent(`No se pudo construir aquí: ${result.reason}`, "warning");
+    }
+  }
+
   private updateHUD() {
     if (!this.gameInitialized || !this.simulation) return;
+    this.refreshStructureSelection();
     const player = this.simulation.getPlayer();
     const citizenSystem = this.simulation.getCitizenSystem();
     const world = this.simulation.getWorld();
@@ -478,6 +760,9 @@ export class Game {
     if (!this.gameInitialized || !this.simulation) {
       return;
     }
+    if (this.planningPriority) {
+      return;
+    }
     const cell = this.camera.getCellUnderPointer(event);
     if (!cell) {
       this.selectedCitizen = null;
@@ -516,7 +801,11 @@ export class Game {
     if (!this.gameInitialized) {
       return;
     }
-    this.hoveredCell = this.camera.getCellUnderPointer(event);
+    const cell = this.camera.getCellUnderPointer(event);
+    this.hoveredCell = cell;
+    if (cell && this.planningStrokeActive && this.planningPriority && this.planningPriority !== "build") {
+      this.applyPlanningAtCell(cell);
+    }
   };
 
   private showCellTooltip(cellPos: Vec2, event: MouseEvent) {
@@ -538,6 +827,8 @@ export class Game {
 
   private handleCanvasLeave = () => {
     this.cellTooltip.hide();
+    this.planningStrokeActive = false;
+    this.planningStrokeCells.clear();
   };
 
   private hideTooltip = () => {
@@ -559,6 +850,22 @@ export class Game {
     if (!this.gameInitialized) {
       return;
     }
+    if (event.button === 0 && this.planningPriority) {
+      const cell = this.camera.getCellUnderPointer(event);
+      if (cell) {
+        if (this.planningPriority === "build") {
+          this.applyStructurePlan(cell);
+          this.planningStrokeActive = false;
+          this.planningStrokeCells.clear();
+        } else {
+          this.planningStrokeActive = true;
+          this.planningStrokeCells.clear();
+          this.applyPlanningAtCell(cell);
+        }
+      }
+      event.preventDefault();
+      return;
+    }
     if (event.button === 1) {
       event.preventDefault();
       this.cellTooltip.hide(); // Ocultar tooltip al iniciar paneo
@@ -569,6 +876,10 @@ export class Game {
   private handleMouseUp = (event: MouseEvent) => {
     if (!this.gameInitialized) {
       return;
+    }
+    if (event.button === 0 && this.planningStrokeActive) {
+      this.planningStrokeActive = false;
+      this.planningStrokeCells.clear();
     }
     if (event.button === 1) {
       this.camera.stopPanning();
@@ -619,6 +930,12 @@ export class Game {
     
     // Ocultar tooltip al redimensionar
     this.cellTooltip.hide();
+  };
+
+  private stopPanning = () => {
+    this.camera.stopPanning();
+    this.planningStrokeActive = false;
+    this.planningStrokeCells.clear();
   };
 
   destroy() {
