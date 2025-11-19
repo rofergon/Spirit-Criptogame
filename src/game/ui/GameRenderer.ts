@@ -1,6 +1,7 @@
 import { clamp } from "../core/utils";
 import type {
   Citizen,
+  ConstructionSite,
   PriorityMark,
   ResourceType,
   StructureType,
@@ -67,9 +68,19 @@ export class GameRenderer {
           this.drawStructure(cell.structure, center, cellSize);
         }
 
-        if (cell.resource) {
+        if (cell.cropProgress > 0) {
+          this.drawCrop(cell, center, cellSize);
+          this.drawFarmOverlay(cell, center, hex);
+        } else if (cell.resource) {
           this.drawResource(cell.resource.type, center, cellSize);
         }
+
+         if (cell.constructionSiteId) {
+           const site = state.world.getConstructionSite(cell.constructionSiteId);
+           if (site) {
+             this.drawConstructionOverlay(site, center, hex);
+           }
+         }
       }),
     );
 
@@ -138,6 +149,10 @@ export class GameRenderer {
         return "#76ff8b";
       case "mine":
         return "#b19cff";
+      case "gather":
+        return "#ffd966";
+      case "build":
+        return "#fcd34d";
       default:
         return "transparent";
     }
@@ -194,6 +209,28 @@ export class GameRenderer {
     ctx.fillText(emoji, center.x, center.y);
   }
 
+  private drawCrop(cell: WorldCell, center: Vec2, cellSize: number) {
+    const ctx = this.ctx;
+    const progress = clamp(cell.cropProgress, 0, 1);
+    if (progress <= 0) return;
+
+    const stage = progress < 0.34 ? 1 : progress < 0.67 ? 2 : 3;
+    const sizeByStage: Record<number, number> = {
+      1: 0.4,
+      2: 0.65,
+      3: 0.95,
+    };
+    const fontSize = cellSize * sizeByStage[stage];
+
+    ctx.save();
+    ctx.font = `${fontSize}px Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.globalAlpha = 0.95;
+    ctx.fillText("🌾", center.x, center.y);
+    ctx.restore();
+  }
+
   private drawStructure(type: StructureType, center: Vec2, cellSize: number) {
     const ctx = this.ctx;
     const emoji: Record<StructureType, string> = {
@@ -208,6 +245,36 @@ export class GameRenderer {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(emoji[type], center.x, center.y);
+  }
+
+  private drawProgressOverlay(center: Vec2, hex: HexGeometry, pct: number, color: string) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.65)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    traceHexPath(ctx, center, hex);
+    ctx.stroke();
+    ctx.restore();
+
+    const progressWidth = hex.width * 0.6;
+    const progressHeight = 4;
+    const progressX = center.x - progressWidth / 2;
+    const progressY = center.y - hex.size * 0.65;
+    ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
+    ctx.fillRect(progressX, progressY, progressWidth, progressHeight);
+    ctx.fillStyle = color;
+    ctx.fillRect(progressX, progressY, progressWidth * clamp(pct, 0, 1), progressHeight);
+  }
+
+  private drawConstructionOverlay(site: ConstructionSite, center: Vec2, hex: HexGeometry) {
+    const pct = site.workRequired > 0 ? clamp(site.workDone / site.workRequired, 0, 1) : 0;
+    this.drawProgressOverlay(center, hex, pct, "#facc15");
+  }
+
+  private drawFarmOverlay(cell: WorldCell, center: Vec2, hex: HexGeometry) {
+    const pct = clamp(cell.cropProgress, 0, 1);
+    this.drawProgressOverlay(center, hex, pct, "#4ade80");
   }
 
   private fillHex(center: Vec2, hex: HexGeometry, color: string) {
