@@ -152,6 +152,8 @@ export class WorldEngine {
           inhabitants: [],
           priority: "none",
           cropProgress: 0,
+          cropStage: 0,
+          farmTask: null,
         };
 
         if (resource) {
@@ -1046,8 +1048,22 @@ export class WorldEngine {
 
   setPriorityAt(x: number, y: number, priority: PriorityMark) {
     const cell = this.getCell(x, y);
-    if (cell) {
-      cell.priority = priority;
+    if (!cell) {
+      return;
+    }
+    const previous = cell.priority;
+    cell.priority = priority;
+    if (priority === "farm") {
+      if (!cell.farmTask) {
+        cell.farmTask = "sow";
+      }
+      if (cell.cropStage === 0) {
+        cell.cropProgress = 0;
+      }
+    } else if (previous === "farm") {
+      cell.cropStage = 0;
+      cell.cropProgress = 0;
+      cell.farmTask = null;
     }
   }
 
@@ -1198,12 +1214,15 @@ export class WorldEngine {
         const isFarmPlot = cell.priority === "farm" || cell.cropProgress > 0;
         const hasStandingCrop =
           isFarmPlot && cell.resource?.type === "food" && (cell.resource.amount ?? 0) > 0;
+        const cropReady = cell.farmTask === "harvest" || hasStandingCrop;
         const viewCell: (typeof cells)[number] = {
           x,
           y,
           priority: cell.priority,
           terrain: cell.terrain,
-          cropReady: cell.cropProgress >= 1 || hasStandingCrop,
+          cropReady,
+          cropStage: cell.cropStage,
+          farmTask: cell.farmTask,
         };
         if (cell.resource) {
           viewCell.resource = cell.resource;
@@ -1256,10 +1275,28 @@ export class WorldEngine {
           cell.resource.amount = clamp(cell.resource.amount + growth * tickHours, 0, maxAmount);
         }
 
-        // Crecimiento de cultivos
-        if (cell.cropProgress > 0) {
+        // Crecimiento de cultivos por etapas
+        if (cell.priority === "farm" && cell.cropStage === 0 && !cell.farmTask) {
+          cell.farmTask = "sow";
+        }
+
+        if (cell.cropStage === 1 && !cell.farmTask) {
           const cropGrowth = cell.fertility * 0.05 * tickHours;
-          cell.cropProgress = clamp(cell.cropProgress + cropGrowth, 0, 1.5);
+          const nextProgress = clamp(cell.cropProgress + cropGrowth, 0, 0.5);
+          cell.cropProgress = nextProgress;
+          if (nextProgress >= 0.45) {
+            cell.cropProgress = 0.5;
+            cell.farmTask = "fertilize";
+          }
+        } else if (cell.cropStage === 2 && !cell.farmTask) {
+          const cropGrowth = cell.fertility * 0.05 * tickHours;
+          const nextProgress = clamp(cell.cropProgress + cropGrowth, 0, 1.2);
+          cell.cropProgress = nextProgress;
+          if (nextProgress >= 1) {
+            cell.cropProgress = 1;
+            cell.cropStage = 3;
+            cell.farmTask = "harvest";
+          }
         }
       });
     });

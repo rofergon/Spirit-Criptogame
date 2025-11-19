@@ -2,6 +2,7 @@ import type {
   Citizen,
   CitizenAction,
   CitizenAI,
+  FarmTask,
   GathererBrain,
   Role,
   StructureType,
@@ -282,6 +283,26 @@ const findStorageTarget = (citizen: Citizen, view: WorldView): Vec2 => {
   return { x: citizen.x, y: citizen.y };
 };
 
+const FARM_TASK_PRIORITY: FarmTask[] = ["harvest", "fertilize", "sow"];
+
+const findFarmWorkCell = (citizen: Citizen, view: WorldView, tasks: FarmTask[]) => {
+  for (const task of tasks) {
+    let best: { cell: (typeof view.cells)[number]; distance: number } | null = null;
+    for (const cell of view.cells) {
+      if (cell.priority !== "farm") continue;
+      if (cell.farmTask !== task) continue;
+      const distance = Math.abs(cell.x - citizen.x) + Math.abs(cell.y - citizen.y);
+      if (!best || distance < best.distance) {
+        best = { cell, distance };
+      }
+    }
+    if (best) {
+      return best;
+    }
+  }
+  return null;
+};
+
 const runGathererBrain = (citizen: Citizen, view: WorldView, resourceType: "food" | "stone"): CitizenAction => {
   const brain = ensureGathererBrain(citizen, resourceType);
   const carryAmount = resourceType === "food" ? citizen.carrying.food : citizen.carrying.stone;
@@ -372,49 +393,20 @@ const farmerAI: CitizenAI = (citizen, view) => {
     return runGathererBrain(citizen, view, "food");
   }
 
-  // Prioridad 2: si ya está en alguna fase del cerebro recolector, continuarla.
+  const farmWork = findFarmWorkCell(citizen, view, FARM_TASK_PRIORITY);
+  if (farmWork) {
+    if (citizen.x === farmWork.cell.x && citizen.y === farmWork.cell.y) {
+      return { type: "tendCrops", x: farmWork.cell.x, y: farmWork.cell.y };
+    }
+    return { type: "move", x: farmWork.cell.x, y: farmWork.cell.y };
+  }
+
+  // Si estaba en fases de recolección natural, continuar
   if (isReturningToStorage || isGatheringPhase) {
     return runGathererBrain(citizen, view, "food");
   }
 
-  // Hysteresis para cultivo: Si ya está cultivando cerca, continuar
-  const currentCell = view.cells.find((cell) => cell.x === citizen.x && cell.y === citizen.y);
-  if (currentCell?.priority === "farm" && (currentCell.terrain === "grassland" || currentCell.terrain === "forest") && !currentCell.cropReady) {
-    return { type: "tendCrops", x: citizen.x, y: citizen.y };
-  }
-
-  const nearbyFarmCell = view.cells.find(
-    (cell) => cell.priority === "farm" && (cell.terrain === "grassland" || cell.terrain === "forest") && !cell.cropReady && Math.abs(cell.x - citizen.x) + Math.abs(cell.y - citizen.y) <= 2,
-  );
-  if (nearbyFarmCell) {
-    if (citizen.x === nearbyFarmCell.x && citizen.y === nearbyFarmCell.y) {
-      return { type: "tendCrops", x: nearbyFarmCell.x, y: nearbyFarmCell.y };
-    }
-    return { type: "move", x: nearbyFarmCell.x, y: nearbyFarmCell.y };
-  }
-
-  // Prioridad 3: Recoger cultivos maduros cercanos (solo si el inventario no está casi lleno)
-  if (citizen.carrying.food < MAX_FOOD_CARRY - 1) {
-    const matureCrop = view.cells.find((cell) => cell.cropReady && cell.resource?.type === "food" && (cell.resource.amount ?? 0) > 0);
-    if (matureCrop) {
-      brain.phase = "goingToResource";
-      brain.target = { x: matureCrop.x, y: matureCrop.y };
-      return runGathererBrain(citizen, view, "food");
-    }
-  }
-
-  // Prioridad 4: Cultivar celdas marcadas como farm
-  const farmCell = view.cells.find(
-    (cell) => cell.priority === "farm" && (cell.terrain === "grassland" || cell.terrain === "forest") && !cell.cropReady,
-  );
-  if (farmCell) {
-    if (citizen.x === farmCell.x && citizen.y === farmCell.y) {
-      return { type: "tendCrops", x: farmCell.x, y: farmCell.y };
-    }
-    return { type: "move", x: farmCell.x, y: farmCell.y };
-  }
-
-  // Prioridad 5: Recolectar comida natural usando gatherer brain
+  // Recolectar comida natural usando gatherer brain como último recurso
   return runGathererBrain(citizen, view, "food");
 };
 

@@ -78,7 +78,7 @@ export class CitizenActionExecutor {
     const gathered = Math.min(1, cell.resource.amount);
     cell.resource.amount = clamp(cell.resource.amount - gathered, 0, 10);
     if (type === "food") {
-      const isFarmPlot = cell.cropProgress > 0 || cell.priority === "farm";
+      const isFarmPlot = cell.priority === "farm" && cell.cropStage > 0;
       citizen.carrying.food += Math.floor(gathered * efficiency);
       if (isFarmPlot) {
         const harvestDrain = 0.35 * gathered;
@@ -163,10 +163,41 @@ export class CitizenActionExecutor {
     const cell = this.world.getCell(x, y);
     if (!cell) return;
     if (citizen.x !== x || citizen.y !== y) return;
-    cell.cropProgress = clamp(cell.cropProgress + 0.11 * tickHours, 0, 1.2);
-    citizen.fatigue = clamp(citizen.fatigue + 1, 0, 100);
-    if (cell.cropProgress >= 1 && !cell.resource) {
-      cell.resource = { type: "food", amount: 2, renewable: true, richness: cell.fertility };
+    citizen.fatigue = clamp(citizen.fatigue + 1.2 * tickHours, 0, 100);
+
+    if (cell.priority !== "farm") {
+      cell.cropProgress = clamp(cell.cropProgress + 0.05 * tickHours, 0, 1);
+      return;
+    }
+
+    const task = cell.farmTask ?? null;
+    if (!task) {
+      return;
+    }
+
+    if (task === "sow") {
+      cell.cropStage = 1;
+      cell.cropProgress = 0.1;
+      cell.farmTask = null;
+      citizen.morale = clamp(citizen.morale + 0.5, 0, 100);
+      return;
+    }
+
+    if (task === "fertilize") {
+      cell.cropStage = 2;
+      cell.cropProgress = Math.max(cell.cropProgress, 0.5);
+      cell.farmTask = null;
+      citizen.morale = clamp(citizen.morale + 0.5, 0, 100);
+      return;
+    }
+
+    if (task === "harvest") {
+      const harvestYield = Math.max(1, Math.round(1 + cell.fertility));
+      citizen.carrying.food += harvestYield;
+      cell.cropStage = 0;
+      cell.cropProgress = 0;
+      cell.farmTask = cell.priority === "farm" ? "sow" : null;
+      citizen.morale = clamp(citizen.morale + 1.5, 0, 100);
     }
   }
 

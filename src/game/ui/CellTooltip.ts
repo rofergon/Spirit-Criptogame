@@ -123,13 +123,22 @@ export class CellTooltipController {
       `;
     }
 
-    // Cultivos
-    if (cell.cropProgress > 0) {
+    const isFarmCell = cell.priority === "farm" || cell.cropStage > 0 || Boolean(cell.farmTask);
+    if (isFarmCell) {
       const progress = Math.round(cell.cropProgress * 100);
-      const isReady = cell.cropProgress >= 1;
+      const stageLabel = this.getCropStageLabel(cell.cropStage ?? 0);
+      const taskLabel = cell.farmTask ? this.getFarmTaskName(cell.farmTask) : cell.cropStage === 3 ? "Cosecha lista" : "Creciendo sin ayuda";
       html += `
         <div style="margin-bottom: 0.75rem; padding: 0.5rem; background: rgba(34, 197, 94, 0.1); border-radius: 6px;">
-          <div><strong>🌾 Cultivo:</strong> ${progress}% ${isReady ? "(¡Listo!)" : ""}</div>
+          <div><strong>🌾 Cultivo:</strong> ${progress}% (${stageLabel})</div>
+          <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.2rem;">${taskLabel}</div>
+        </div>
+      `;
+    } else if (cell.cropProgress > 0) {
+      const progress = Math.round(cell.cropProgress * 100);
+      html += `
+        <div style="margin-bottom: 0.75rem; padding: 0.5rem; background: rgba(34, 197, 94, 0.1); border-radius: 6px;">
+          <div><strong>🌾 Vegetación:</strong> ${progress}%</div>
         </div>
       `;
     }
@@ -331,6 +340,25 @@ export class CellTooltipController {
       none: "Ninguna"
     };
     return names[priority] || priority;
+  }
+
+  private getCropStageLabel(stage: number): string {
+    const labels: Record<number, string> = {
+      0: "Barbecho",
+      1: "Germinando",
+      2: "Madurando",
+      3: "Listo para cosechar",
+    };
+    return labels[stage] ?? "Desconocido";
+  }
+
+  private getFarmTaskName(task: string): string {
+    const names: Record<string, string> = {
+      sow: "Siembra necesaria",
+      fertilize: "Requiere fertilización",
+      harvest: "Requiere cosecha",
+    };
+    return names[task] ?? task;
   }
 
   private isWalkable(terrain: string): boolean {

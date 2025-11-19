@@ -1,7 +1,7 @@
 import { HOURS_PER_SECOND, PRIORITY_KEYMAP, TICK_HOURS, WORLD_SIZE } from "./core/constants";
 import { InputHandler } from "./core/InputHandler";
 import { clamp } from "./core/utils";
-import type { Citizen, PriorityMark, Role, ToastNotification, Vec2 } from "./core/types";
+import type { Citizen, PriorityMark, Role, StructureType, ToastNotification, Vec2 } from "./core/types";
 import { SimulationSession } from "./core/SimulationSession";
 import { CameraController } from "./core/CameraController";
 import { HUDController, type HUDSnapshot } from "./ui/HUDController";
@@ -9,9 +9,12 @@ import { CitizenPanelController } from "./ui/CitizenPanel";
 import { GameRenderer, type RenderState, type ViewMetrics } from "./ui/GameRenderer";
 import { MainMenu } from "./ui/MainMenu";
 import { CellTooltipController } from "./ui/CellTooltip";
+import { getStructureDefinition } from "./data/structures";
+import type { StructureRequirements } from "./data/structures";
 import { axialToOffset, createHexGeometry, getHexCenter, getHexWorldBounds, pixelToAxial, roundAxial } from "./ui/hexGrid";
 
 type AssignableRole = Extract<Role, "farmer" | "worker" | "warrior" | "scout">;
+type PlanningMode = "farm" | "mine" | "gather" | "build";
 
 export class Game {
   private running = false;
@@ -44,6 +47,22 @@ export class Game {
 
   private selectedCitizen: Citizen | null = null;
   private hoveredCell: Vec2 | null = null;
+  private planningPriority: PlanningMode | null = null;
+  private planningStrokeActive = false;
+  private planningStrokeCells = new Set<string>();
+  private planningButtons: HTMLButtonElement[] = [];
+  private buildSelector = document.querySelector<HTMLDivElement>("#build-selector");
+  private structurePrevButton = document.querySelector<HTMLButtonElement>("#build-prev");
+  private structureNextButton = document.querySelector<HTMLButtonElement>("#build-next");
+  private structureLabel = document.querySelector<HTMLSpanElement>("#build-name");
+  private structureStatusLabel = document.querySelector<HTMLSpanElement>("#build-status");
+  private buildDetailsContainer = document.querySelector<HTMLDivElement>("#build-details");
+  private buildDetailsSummary = document.querySelector<HTMLParagraphElement>("#build-details-summary");
+  private buildDetailsCost = document.querySelector<HTMLSpanElement>("#build-details-cost");
+  private buildDetailsRequirements = document.querySelector<HTMLSpanElement>("#build-details-requirements");
+  private planningHintLabel = document.querySelector<HTMLDivElement>("#planning-hint");
+  private selectedStructureType: StructureType | null = null;
+  private availableStructures: StructureType[] = [];
 
   private zoom = 1;
   private readonly minZoom = 0.75;
@@ -68,6 +87,7 @@ export class Game {
     this.setupZoomControls();
     this.setupRoleControls();
     this.setupSpeedControls();
+    this.setupPlanningControls();
     this.bindCanvasEvents();
     this.debugExportButton?.addEventListener("click", this.exportDebugLog);
 
@@ -102,6 +122,8 @@ export class Game {
 
     this.gameInitialized = true;
     this.updateRoleControls(true);
+    this.refreshStructureSelection();
+    this.updatePlanningHint();
     this.updateCitizenPanel();
 
     this.hud.setPauseButtonState(true);
@@ -235,6 +257,21 @@ export class Game {
     });
   }
 
+  private setupPlanningControls() {
+    this.planningButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".planning-button"));
+    this.planningButtons.forEach((button) => {
+      const mode = button.dataset.planningMode as PlanningMode | undefined;
+      if (!mode) return;
+      button.addEventListener("click", () => this.togglePlanningMode(mode));
+    });
+    this.structurePrevButton?.addEventListener("click", () => this.cycleStructure(-1));
+    this.structureNextButton?.addEventListener("click", () => this.cycleStructure(1));
+    this.updatePlanningButtons();
+    this.updatePlanningHint();
+    this.updateBuildSelectorVisibility();
+    this.updateStructureDetails();
+  }
+
   private handleRoleSliderInput = () => {
     if (!this.gameInitialized || !this.simulation) {
       return;
@@ -257,6 +294,262 @@ export class Game {
       targets[role] = Number.isNaN(value) ? 0 : Math.max(0, value);
     }
     return targets;
+  }
+
+  private togglePlanningMode(mode: PlanningMode) {
+    if (this.planningPriority === mode) {
+      this.clearPlanningMode();
+      return;
+    }
+    this.activatePlanningMode(mode);
+  }
+
+  private activatePlanningMode(mode: PlanningMode) {
+    this.planningPriority = mode;
+    if (mode !== "build") {
+      this.planningStrokeActive = false;
+      this.planningStrokeCells.clear();
+    } else {
+      this.ensureStructureSelection();
+    }
+    this.updatePlanningButtons();
+    this.updatePlanningHint();
+    this.updateBuildSelectorVisibility();
+  }
+
+  private clearPlanningMode() {
+    if (!this.planningPriority) {
+      return;
+    }
+    this.planningPriority = null;
+    this.planningStrokeActive = false;
+    this.planningStrokeCells.clear();
+    this.updatePlanningButtons();
+    this.updatePlanningHint();
+    this.updateBuildSelectorVisibility();
+  }
+
+  private updatePlanningButtons() {
+    if (this.planningButtons.length === 0) {
+      return;
+    }
+    this.planningButtons.forEach((button) => {
+      const mode = button.dataset.planningMode as PlanningMode | undefined;
+      if (!mode) return;
+      const active = mode === this.planningPriority;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  private updatePlanningHint(message?: string) {
+    if (message) {
+      this.setPlanningHint(message);
+      return;
+    }
+    if (!this.planningHintLabel) {
+      return;
+    }
+    if (!this.planningPriority) {
+      this.setPlanningHint("Selecciona un modo para empezar a marcar zonas.");
+      return;
+    }
+    if (this.planningPriority === "build") {
+      if (!this.selectedStructureType) {
+        this.setPlanningHint("No hay edificios disponibles todavía. Aumenta la población para desbloquearlos.");
+      } else {
+        this.setPlanningHint("Haz clic en el mapa para trazar el plano del edificio seleccionado.");
+      }
+      return;
+    }
+    const labels: Record<Exclude<PlanningMode, "build">, string> = {
+      farm: "Arrastra sobre el mapa para señalar zonas de cultivo.",
+      mine: "Pinta sobre colinas o montañas para priorizar la minería.",
+      gather: "Designa zonas de recolección natural para tus trabajadores.",
+    };
+    this.setPlanningHint(labels[this.planningPriority]);
+  }
+
+  private setPlanningHint(text: string) {
+    if (!this.planningHintLabel) return;
+    this.planningHintLabel.textContent = text;
+  }
+
+  private updateBuildSelectorVisibility() {
+    if (!this.buildSelector) {
+      return;
+    }
+    const show = this.planningPriority === "build";
+    this.buildSelector.classList.toggle("collapsed", !show);
+    this.buildSelector.setAttribute("aria-hidden", show ? "false" : "true");
+  }
+
+  private refreshStructureSelection() {
+    if (!this.simulation) {
+      if (this.availableStructures.length > 0 || this.selectedStructureType) {
+        this.availableStructures = [];
+        this.selectedStructureType = null;
+        this.updateStructureDetails();
+      }
+      return;
+    }
+    const unlocked = this.simulation.getAvailableStructures();
+    const prevKey = this.availableStructures.join(",");
+    const nextKey = unlocked.join(",");
+    if (prevKey === nextKey) {
+      return;
+    }
+    this.availableStructures = unlocked;
+    this.ensureStructureSelection();
+    this.updateStructureDetails();
+    this.updatePlanningHint();
+  }
+
+  private ensureStructureSelection() {
+    if (this.availableStructures.length === 0) {
+      this.selectedStructureType = null;
+      return;
+    }
+    if (!this.selectedStructureType || !this.availableStructures.includes(this.selectedStructureType)) {
+      this.selectedStructureType = this.availableStructures[0] ?? null;
+    }
+  }
+
+  private cycleStructure(direction: number) {
+    if (this.availableStructures.length === 0) {
+      return;
+    }
+    if (!this.selectedStructureType) {
+      this.selectedStructureType = this.availableStructures[0] ?? null;
+      this.updateStructureDetails();
+      this.updatePlanningHint();
+      return;
+    }
+    const index = this.availableStructures.indexOf(this.selectedStructureType);
+    const length = this.availableStructures.length;
+    const nextIndex = (index + direction + length) % length;
+    this.selectedStructureType = this.availableStructures[nextIndex] ?? null;
+    this.updateStructureDetails();
+    this.updatePlanningHint();
+  }
+
+  private updateStructureDetails() {
+    const hasOptions = this.availableStructures.length > 0;
+    if (!hasOptions) {
+      this.selectedStructureType = null;
+    }
+    const disableCyclers = this.availableStructures.length <= 1;
+    if (this.structurePrevButton) {
+      this.structurePrevButton.disabled = disableCyclers;
+    }
+    if (this.structureNextButton) {
+      this.structureNextButton.disabled = disableCyclers;
+    }
+
+    if (!this.selectedStructureType) {
+      if (this.structureLabel) this.structureLabel.textContent = "Ninguno";
+      if (this.structureStatusLabel) {
+        this.structureStatusLabel.textContent = hasOptions
+          ? "Selecciona un edificio para comenzar."
+          : "Aumenta la población para desbloquear edificios.";
+      }
+      if (this.buildDetailsContainer) {
+        this.buildDetailsContainer.hidden = true;
+      }
+      if (this.buildDetailsSummary) {
+        this.buildDetailsSummary.textContent = "Selecciona un edificio para ver sus detalles.";
+      }
+      if (this.buildDetailsCost) {
+        this.buildDetailsCost.textContent = "-";
+      }
+      if (this.buildDetailsRequirements) {
+        this.buildDetailsRequirements.textContent = "-";
+      }
+      return;
+    }
+
+    const definition = getStructureDefinition(this.selectedStructureType);
+    if (this.structureLabel) {
+      if (definition) {
+        this.structureLabel.textContent = `${definition.icon} ${definition.displayName}`;
+      } else {
+        this.structureLabel.textContent = this.selectedStructureType;
+      }
+    }
+    if (this.structureStatusLabel) {
+      this.structureStatusLabel.textContent = "Haz clic en el mapa para planificar este edificio.";
+    }
+    if (this.buildDetailsContainer) {
+      this.buildDetailsContainer.hidden = !definition;
+    }
+    if (definition) {
+      if (this.buildDetailsSummary) {
+        this.buildDetailsSummary.textContent = definition.summary;
+      }
+      if (this.buildDetailsCost) {
+        this.buildDetailsCost.textContent = this.formatStructureCosts(definition.costs);
+      }
+      if (this.buildDetailsRequirements) {
+        this.buildDetailsRequirements.textContent = this.formatStructureRequirements(definition.requirements);
+      }
+    }
+  }
+
+  private formatStructureCosts(costs: { stone?: number; food?: number }) {
+    const parts: string[] = [];
+    if (costs.stone && costs.stone > 0) {
+      parts.push(`${costs.stone} piedra${costs.stone > 1 ? "s" : ""}`);
+    }
+    if (costs.food && costs.food > 0) {
+      parts.push(`${costs.food} comida`);
+    }
+    return parts.length > 0 ? parts.join(" · ") : "Sin coste";
+  }
+
+  private formatStructureRequirements(req: StructureRequirements) {
+    const parts: string[] = [];
+    if (req.population) {
+      parts.push(`Población ${req.population}+`);
+    }
+    if (req.structures && req.structures.length > 0) {
+      const names = req.structures
+        .map((type) => getStructureDefinition(type)?.displayName ?? type)
+        .join(", ");
+      parts.push(`Estructuras: ${names}`);
+    }
+    return parts.length > 0 ? parts.join(" | ") : "Ninguno";
+  }
+
+  private applyPlanningAtCell(cell: Vec2) {
+    if (!this.simulation || !this.planningPriority || this.planningPriority === "build") {
+      return;
+    }
+    const key = this.planningCellKey(cell);
+    if (this.planningStrokeCells.has(key)) {
+      return;
+    }
+    this.planningStrokeCells.add(key);
+    this.simulation.getWorld().setPriorityAt(cell.x, cell.y, this.planningPriority);
+  }
+
+  private applyStructurePlan(cell: Vec2) {
+    if (!this.simulation) {
+      return;
+    }
+    if (!this.selectedStructureType) {
+      this.updatePlanningHint("No hay edificios desbloqueados todavía.");
+      return;
+    }
+    const result = this.simulation.planConstruction(this.selectedStructureType, cell);
+    if (!result.ok) {
+      this.updatePlanningHint(result.reason ?? "No se pudo trazar el plano aquí.");
+    } else {
+      this.updatePlanningHint(`Plano trazado en (${cell.x}, ${cell.y}).`);
+    }
+  }
+
+  private planningCellKey(cell: Vec2) {
+    return `${cell.x},${cell.y}`;
   }
 
   private updateRoleControls(force = false) {
@@ -322,6 +615,30 @@ export class Game {
       }
     });
 
+    if (this.input.consumeKey("KeyF")) {
+      this.togglePlanningMode("farm");
+    }
+    if (this.input.consumeKey("KeyM")) {
+      this.togglePlanningMode("mine");
+    }
+    if (this.input.consumeKey("KeyG")) {
+      this.togglePlanningMode("gather");
+    }
+    if (this.input.consumeKey("KeyB")) {
+      this.togglePlanningMode("build");
+    }
+    if (this.input.consumeKey("Escape")) {
+      this.clearPlanningMode();
+    }
+    if (this.planningPriority === "build") {
+      if (this.input.consumeKey("BracketLeft")) {
+        this.cycleStructure(-1);
+      }
+      if (this.input.consumeKey("BracketRight")) {
+        this.cycleStructure(1);
+      }
+    }
+
     if (this.input.consumeAny(["KeyE", "Space"])) {
       this.blessNearestCitizen();
     }
@@ -353,6 +670,7 @@ export class Game {
     this.updateRoleControls();
     this.updateHUD();
     this.updateCitizenPanel();
+    this.refreshStructureSelection();
   }
 
   private blessNearestCitizen() {
@@ -478,6 +796,9 @@ export class Game {
     if (!this.gameInitialized || !this.simulation) {
       return;
     }
+    if (this.planningPriority) {
+      return;
+    }
     const cell = this.camera.getCellUnderPointer(event);
     if (!cell) {
       this.selectedCitizen = null;
@@ -517,6 +838,9 @@ export class Game {
       return;
     }
     this.hoveredCell = this.camera.getCellUnderPointer(event);
+    if (this.planningStrokeActive && this.planningPriority && this.planningPriority !== "build" && this.hoveredCell) {
+      this.applyPlanningAtCell(this.hoveredCell);
+    }
   };
 
   private showCellTooltip(cellPos: Vec2, event: MouseEvent) {
@@ -538,6 +862,8 @@ export class Game {
 
   private handleCanvasLeave = () => {
     this.cellTooltip.hide();
+    this.planningStrokeActive = false;
+    this.planningStrokeCells.clear();
   };
 
   private hideTooltip = () => {
@@ -559,6 +885,23 @@ export class Game {
     if (!this.gameInitialized) {
       return;
     }
+    if (event.button === 0 && this.planningPriority) {
+      const cell = this.camera.getCellUnderPointer(event);
+      if (cell) {
+        event.preventDefault();
+        this.cellTooltip.hide();
+        if (this.planningPriority === "build") {
+          this.applyStructurePlan(cell);
+          this.planningStrokeActive = false;
+          this.planningStrokeCells.clear();
+        } else {
+          this.planningStrokeActive = true;
+          this.planningStrokeCells.clear();
+          this.applyPlanningAtCell(cell);
+        }
+      }
+      return;
+    }
     if (event.button === 1) {
       event.preventDefault();
       this.cellTooltip.hide(); // Ocultar tooltip al iniciar paneo
@@ -570,6 +913,10 @@ export class Game {
     if (!this.gameInitialized) {
       return;
     }
+    if (event.button === 0 && this.planningStrokeActive) {
+      this.planningStrokeActive = false;
+      this.planningStrokeCells.clear();
+    }
     if (event.button === 1) {
       this.camera.stopPanning();
     }
@@ -577,6 +924,8 @@ export class Game {
 
   private stopPanning = () => {
     this.camera.stopPanning();
+    this.planningStrokeActive = false;
+    this.planningStrokeCells.clear();
   };
 
   private handlePanMove = (event: MouseEvent) => {

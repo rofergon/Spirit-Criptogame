@@ -13,6 +13,7 @@ export type Terrain =
   | "river";
 export type ResourceType = "food" | "stone" | "waterSpring";
 export type StructureType = "village" | "granary" | "house" | "tower" | "temple" | "campfire";
+export type FarmTask = "sow" | "fertilize" | "harvest";
 export type PriorityMark = "none" | "explore" | "defend" | "farm" | "mine" | "gather" | "build";
 export type Role = "worker" | "farmer" | "warrior" | "scout" | "child" | "elder";
 export type GathererPhase = "idle" | "goingToResource" | "gathering" | "goingToStorage";
@@ -36,6 +37,8 @@ export interface WorldCell {
   inhabitants: number[];
   priority: PriorityMark;
   cropProgress: number;
+  cropStage: 0 | 1 | 2 | 3;
+  farmTask: FarmTask | null;
 }
 
 export type StructureBlueprint = {
@@ -106,7 +109,17 @@ export interface Citizen {
 }
 
 export interface WorldView {
-  cells: Array<{ x: number; y: number; priority: PriorityMark; terrain: Terrain; resource?: ResourceNode; structure?: StructureType; cropReady: boolean }>;
+  cells: Array<{
+    x: number;
+    y: number;
+    priority: PriorityMark;
+    terrain: Terrain;
+    resource?: ResourceNode;
+    structure?: StructureType;
+    cropReady: boolean;
+    cropStage: 0 | 1 | 2 | 3;
+    farmTask: FarmTask | null;
+  }>;
   nearbyCitizens: Citizen[];
   threats: Citizen[];
   villageCenter?: Vec2;
