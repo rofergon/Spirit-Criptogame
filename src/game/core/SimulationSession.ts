@@ -1,6 +1,5 @@
 import { clamp } from "./utils";
 import type { ClimateState, PriorityMark, ResourceTrend, Role, StructureType, ToastNotification, Vec2 } from "./types";
-import { PlayerSpirit } from "./PlayerSpirit";
 import { WorldEngine } from "./world/WorldEngine";
 import { CitizenSystem, type CitizenSystemEvent } from "../systems/CitizenSystem";
 
@@ -16,13 +15,11 @@ type SimulationHooks = {
 };
 
 type RunTickOptions = {
-  moveIntent?: Vec2 | null;
   priority?: PriorityMark | null;
 };
 
 export class SimulationSession {
   private world!: WorldEngine;
-  private player!: PlayerSpirit;
   private citizenSystem!: CitizenSystem;
   private climate: ClimateState = { drought: false, droughtTimer: 0, rainy: false, rainyTimer: 0 };
   private nextEventTimer = 8;
@@ -42,9 +39,6 @@ export class SimulationSession {
     this.resourceTrackTimer = 0;
     this.extinctionAnnounced = false;
     this.world = new WorldEngine(config.worldSize, config.seed);
-    this.player = new PlayerSpirit(config.worldSize);
-    this.player.x = this.world.villageCenter.x;
-    this.player.y = this.world.villageCenter.y;
 
     this.citizenSystem = new CitizenSystem(this.world, (event) => this.handleCitizenEvent(event));
     this.world.citizenLookup = (id) => this.citizenSystem.getCitizenById(id);
@@ -70,11 +64,6 @@ export class SimulationSession {
   runTick(tickHours: number, options: RunTickOptions = {}) {
     if (!this.initialized) return;
 
-    const moveIntent = options.moveIntent ?? { x: 0, y: 0 };
-    if (moveIntent.x !== 0 || moveIntent.y !== 0) {
-      this.player.move(moveIntent.x, moveIntent.y, this.world);
-    }
-
     if (options.priority) {
       this.applyPriority(options.priority);
     }
@@ -82,56 +71,17 @@ export class SimulationSession {
     this.updateEvents(tickHours);
     this.world.updateEnvironment(this.climate, tickHours);
     this.citizenSystem.update(tickHours);
-    this.regeneratePlayerPower(tickHours);
     this.trackResourceTrends(tickHours);
     this.checkExtinction();
   }
 
   applyPriority(priority: PriorityMark) {
+    // Ya no se usa el espíritu del jugador para aplicar prioridades
+    // Esta funcionalidad se maneja ahora a través de la interfaz de planificación
     if (!this.initialized) return;
-    this.player.getCoveredCells().forEach(({ x, y }) => this.world.setPriorityAt(x, y, priority));
-    const label =
-      priority === "none" ? "Sin prioridad" : priority === "explore" ? "Explorar" : priority === "defend" ? "Defender" : priority === "farm" ? "Farmear" : "Minar";
-    this.log(`Prioridad: ${label}`);
   }
 
-  blessNearestCitizen() {
-    if (!this.initialized) return;
-    if (!this.player.spendPower(this.player.blessingCost)) {
-      this.log("No hay poder suficiente para bendecir.");
-      return;
-    }
 
-    const candidates = this.citizenSystem.tryBlessCitizens(this.player.getCoveredCells());
-    if (candidates.length === 0) {
-      this.log("No hay habitantes cercanos.");
-      this.player.power = clamp(this.player.power + this.player.blessingCost, 0, 120);
-      return;
-    }
-
-    const target = candidates[0];
-    if (!target) return;
-    target.morale = clamp(target.morale + 20, 0, 100);
-    target.health = clamp(target.health + 10, 0, 100);
-    target.fatigue = clamp(target.fatigue - 20, 0, 100);
-    target.blessedUntil = target.age + 8;
-    this.log(`Habitante ${target.id} bendecido.`);
-  }
-
-  dropTotem() {
-    if (!this.initialized) return;
-    const cell = this.world.getCell(this.player.x, this.player.y);
-    if (!cell || cell.structure) {
-      this.log("Aquí no cabe otro tótem.");
-      return;
-    }
-    if (!this.player.spendPower(25)) {
-      this.log("Hace falta más poder para invocar.");
-      return;
-    }
-    this.world.buildStructure("temple", this.player.x, this.player.y);
-    this.log("Se ha elevado un tótem espiritual.");
-  }
 
   planConstruction(type: StructureType, anchor: Vec2) {
     if (!this.initialized) {
@@ -152,10 +102,6 @@ export class SimulationSession {
 
   getWorld() {
     return this.world;
-  }
-
-  getPlayer() {
-    return this.player;
   }
 
   getCitizenSystem() {
@@ -240,10 +186,7 @@ export class SimulationSession {
     this.citizenSystem.spawnBeasts();
   }
 
-  private regeneratePlayerPower(tickHours: number) {
-    const alive = this.citizenSystem.getPopulationCount((citizen) => citizen.state === "alive" && citizen.tribeId === this.playerTribeId);
-    this.player.power = clamp(this.player.power + alive * 0.01 * tickHours, 0, 120);
-  }
+
 
   private trackResourceTrends(tickHours: number) {
     this.resourceTrackTimer += tickHours;
@@ -284,8 +227,6 @@ export class SimulationSession {
   private handleCitizenEvent(event: CitizenSystemEvent) {
     if (event.type === "log") {
       this.log(event.message, event.notificationType);
-    } else if (event.type === "powerGain") {
-      this.player.power = clamp(this.player.power + event.amount, 0, 120);
     }
   }
 

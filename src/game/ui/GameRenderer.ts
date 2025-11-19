@@ -9,7 +9,6 @@ import type {
   Vec2,
   WorldCell,
 } from "../core/types";
-import type { PlayerSpirit } from "../core/PlayerSpirit";
 import type { WorldEngine } from "../core/world/WorldEngine";
 import { createHexGeometry, getHexCenter, traceHexPath } from "./hexGrid";
 import type { HexGeometry } from "./hexGrid";
@@ -25,7 +24,6 @@ export type ViewMetrics = {
 export type RenderState = {
   world: WorldEngine;
   citizens: Citizen[];
-  player: PlayerSpirit;
   selectedCitizen: Citizen | null;
   hoveredCell: Vec2 | null;
   notifications: ToastNotification[];
@@ -131,16 +129,6 @@ export class GameRenderer {
         ctx.stroke();
       }
     });
-
-    ctx.strokeStyle = "#f9dd82";
-    ctx.lineWidth = 2;
-    state.player.getCoveredCells().forEach(({ x, y }) => {
-      const center = getHexCenter(x, y, hex, offsetX, offsetY);
-      traceHexPath(ctx, center, hex);
-      ctx.stroke();
-    });
-
-    this.drawInfluenceBoundary(state.player, hex, offsetX, offsetY);
 
     this.drawNotifications(state.notifications);
     this.drawContextPanel(state.selectedCitizen);
@@ -457,18 +445,7 @@ export class GameRenderer {
     ctx.fill();
   }
 
-  private drawInfluenceBoundary(player: PlayerSpirit, hex: HexGeometry, offsetX: number, offsetY: number) {
-    const ctx = this.ctx;
-    const radius = player.influenceRadius;
-    const topLeft = getHexCenter(player.x - radius, player.y - radius, hex, offsetX, offsetY);
-    const bottomRight = getHexCenter(player.x + radius, player.y + radius, hex, offsetX, offsetY);
-    const width = bottomRight.x - topLeft.x;
-    const height = bottomRight.y - topLeft.y;
 
-    ctx.strokeStyle = "rgba(255,255,255,0.25)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(topLeft.x - hex.halfWidth, topLeft.y - hex.size, width + hex.width, height + hex.height);
-  }
 
   private drawNotifications(notifications: ToastNotification[]) {
     const ctx = this.ctx;

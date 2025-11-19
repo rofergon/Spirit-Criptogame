@@ -41,8 +41,6 @@ export class Game {
   private gameInitialized = false;
   private readonly camera: CameraController;
 
-  private currentDirection: Vec2 = { x: 0, y: 0 };
-  private pendingMoveDirection: Vec2 | null = null;
   private pendingPriority: PriorityMark | null = null;
 
   private selectedCitizen: Citizen | null = null;
@@ -115,8 +113,8 @@ export class Game {
     this.simulation.initialize(config);
     this.extinctionAnnounced = false;
 
-    const player = this.simulation.getPlayer();
-    this.camera.setViewTarget({ x: player.x + 0.5, y: player.y + 0.5 });
+    const world = this.simulation.getWorld();
+    this.camera.setViewTarget({ x: world.villageCenter.x + 0.5, y: world.villageCenter.y + 0.5 });
     this.selectedCitizen = null;
     this.hoveredCell = null;
 
@@ -606,12 +604,6 @@ export class Game {
   };
 
   private handleRealtimeInput() {
-    const dir = this.input.getDirection();
-    this.currentDirection = dir;
-    if (dir.x !== 0 || dir.y !== 0) {
-      this.pendingMoveDirection = { ...dir };
-    }
-
     Object.entries(PRIORITY_KEYMAP).forEach(([key, priority]) => {
       if (this.input.consumeKey(key)) {
         this.pendingPriority = priority;
@@ -641,28 +633,17 @@ export class Game {
         this.cycleStructure(1);
       }
     }
-
-    if (this.input.consumeAny(["KeyE", "Space"])) {
-      this.blessNearestCitizen();
-    }
-
-    if (this.input.consumeKey("KeyT")) {
-      this.dropTotem();
-    }
   }
 
   private runTick(tickHours: number) {
     if (!this.gameInitialized || !this.simulation) return;
 
-    const moveIntent = this.pendingMoveDirection ?? this.currentDirection;
     const priority = this.pendingPriority;
 
     this.simulation.runTick(tickHours, {
-      moveIntent,
       priority: priority ?? null,
     });
 
-    this.pendingMoveDirection = null;
     this.pendingPriority = null;
 
     if (this.selectedCitizen?.state === "dead") {
@@ -676,29 +657,15 @@ export class Game {
     this.refreshStructureSelection();
   }
 
-  private blessNearestCitizen() {
-    if (!this.gameInitialized || !this.simulation) {
-      return;
-    }
-    this.simulation.blessNearestCitizen();
-  }
 
-  private dropTotem() {
-    if (!this.gameInitialized || !this.simulation) {
-      return;
-    }
-    this.simulation.dropTotem();
-  }
 
   private updateHUD() {
     if (!this.gameInitialized || !this.simulation) return;
-    const player = this.simulation.getPlayer();
     const citizenSystem = this.simulation.getCitizenSystem();
     const world = this.simulation.getWorld();
     const citizens = citizenSystem.getCitizens();
     const livingPopulation = citizens.filter((citizen) => citizen.state === "alive").length;
     const hudSnapshot: HUDSnapshot = {
-      power: player.power,
       population: {
         value: livingPopulation,
         trend: this.simulation.getResourceTrendAverage("population"),
@@ -792,7 +759,6 @@ export class Game {
     const renderState: RenderState = {
       world: this.simulation.getWorld(),
       citizens: this.simulation.getCitizenSystem().getCitizens(),
-      player: this.simulation.getPlayer(),
       selectedCitizen: this.selectedCitizen,
       hoveredCell: this.hoveredCell,
       notifications: this.hud.getNotifications(),
@@ -952,9 +918,7 @@ export class Game {
       if (!this.gameInitialized) {
         return;
       }
-      const player = this.simulation?.getPlayer();
-      const anchor = hoverAnchor() ?? (player ? { x: player.x + 0.5, y: player.y + 0.5 } : null);
-      this.camera.adjustZoom(0.2, anchor);
+      this.camera.adjustZoom(0.2, hoverAnchor());
     });
 
     this.zoomOutButton?.addEventListener("click", () => {

@@ -1,7 +1,6 @@
 import type { ClimateState, ToastNotification } from "../core/types";
 
 export type HUDSnapshot = {
-  power: number;
   population: { value: number; trend: number };
   climate: ClimateState;
   food: { value: number; capacity: number; trend: number };
@@ -29,10 +28,6 @@ export class HUDController {
   private logArchive: string[] = [];
 
   updateHUD(snapshot: HUDSnapshot) {
-    if (this.hudScore) {
-      this.hudScore.textContent = `${snapshot.power.toFixed(1)} Fe`;
-    }
-
     if (this.hudPopulation) {
       const arrow = snapshot.population.trend > 0.1 ? "⬆️" : snapshot.population.trend < -0.1 ? "⬇️" : "➡️";
       this.hudPopulation.textContent = `${snapshot.population.value} habitantes ${arrow}`;
@@ -147,7 +142,7 @@ export class HUDController {
     });
 
     btnHelp?.addEventListener("click", () => {
-      this.showNotification("Usa WASD para moverte, 1-4 para marcar áreas, E para bendecir", "info", 6000);
+      this.showNotification("Usa F/M/G/B para planificar áreas, [ y ] para cambiar estructuras", "info", 6000);
     });
 
     this.pauseButton?.addEventListener("click", onPauseToggle);
@@ -159,14 +154,11 @@ export class HUDController {
     this.overlay.innerHTML = `
       <div>
         <h1>Espíritu Guardián</h1>
-        <p>WASD o flechas: moverte (3×3 celdas).</p>
-        <p>1 Explorar · 2 Defender · 3 Farmear · 4 Minar · 0 limpiar prioridad.</p>
         <p>Panel "Planificación" o teclas F/M/G/B para marcar cultivos, minas, recolección o construcción (usa [ y ] para cambiar edificio).</p>
         <p>Haz clic izquierdo sobre el mapa para pintar o colocar planos; arrastra para cubrir varias celdas.</p>
         <p>Rueda sobre el mapa o usa los botones +/- para acercar o alejar.</p>
         <p>Mantén el click medio y arrastra para desplazar la cámara.</p>
-        <p>E / Espacio: bendecir habitante cercano. T: invocar tótem.</p>
-        <p>Observa el HUD para Fe, población y clima. Mantén viva la tribu.</p>
+        <p>Observa el HUD para población, clima y recursos. Mantén viva la tribu.</p>
         <p>Presiona Enter para comenzar.</p>
       </div>
     `;
