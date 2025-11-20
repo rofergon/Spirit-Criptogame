@@ -1027,10 +1027,6 @@ export class Game {
 
     this.showCellTooltip(cell, event);
 
-    const worldPoint = this.camera.getWorldPosition(event);
-    if (worldPoint) {
-      this.camera.focusOn(worldPoint);
-    }
     this.updateCitizenPanel();
   };
 
