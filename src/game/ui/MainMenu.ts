@@ -212,16 +212,21 @@ export class MainMenu {
 
     if (this.useMobileLayout) {
       const available = canvasHeight - margin * 2;
-      const gap = 12;
+      const gap = 16;
 
       // Alturas fijas para componentes móviles
-      const titleHeight = 50;
-      const configPanelHeight = 260; // Más compacto
-      const startButtonHeight = 56;
+      const titleHeight = 60; // Increased space for title
+      const configPanelHeight = 280; // Slightly taller for better spacing
+      const startButtonHeight = 60;
 
       // El preview ocupa el espacio restante, pero con un mínimo
+      // Si no hay espacio suficiente, el preview se hace pequeño
       let previewHeight = available - titleHeight - configPanelHeight - startButtonHeight - gap * 3;
-      previewHeight = Math.max(100, previewHeight);
+
+      // Ensure minimum height for preview, even if it means scrolling (though we don't scroll here)
+      // or overlapping slightly in a controlled way.
+      // Better: Prioritize UI controls over preview size on very small screens.
+      previewHeight = Math.max(80, previewHeight);
 
       const contentWidth = canvasWidth - margin * 2;
 
