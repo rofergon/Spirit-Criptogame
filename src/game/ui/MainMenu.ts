@@ -212,21 +212,16 @@ export class MainMenu {
 
     if (this.useMobileLayout) {
       const available = canvasHeight - margin * 2;
-      const gap = 16;
+      const gap = 12;
 
       // Alturas fijas para componentes móviles
-      const titleHeight = 60; // Increased space for title
-      const configPanelHeight = 280; // Slightly taller for better spacing
-      const startButtonHeight = 60;
+      const titleHeight = 50;
+      const configPanelHeight = 220;
+      const startButtonHeight = 56;
 
       // El preview ocupa el espacio restante, pero con un mínimo
-      // Si no hay espacio suficiente, el preview se hace pequeño
       let previewHeight = available - titleHeight - configPanelHeight - startButtonHeight - gap * 3;
-
-      // Ensure minimum height for preview, even if it means scrolling (though we don't scroll here)
-      // or overlapping slightly in a controlled way.
-      // Better: Prioritize UI controls over preview size on very small screens.
-      previewHeight = Math.max(80, previewHeight);
+      previewHeight = Math.max(60, previewHeight);
 
       const contentWidth = canvasWidth - margin * 2;
 
@@ -234,6 +229,25 @@ export class MainMenu {
       const previewY = margin + titleHeight + gap;
       const configPanelY = previewY + previewHeight + gap;
       const startButtonY = configPanelY + configPanelHeight + gap;
+
+      // Check for overflow
+      const totalHeight = startButtonY + startButtonHeight + margin;
+      if (totalHeight > canvasHeight) {
+        const overflow = totalHeight - canvasHeight;
+        previewHeight = Math.max(0, previewHeight - overflow);
+
+        const newConfigPanelY = previewY + previewHeight + gap;
+        const newStartButtonY = newConfigPanelY + configPanelHeight + gap;
+
+        return {
+          centerX,
+          useColumns: false,
+          preview: { x: margin, y: previewY, width: contentWidth, height: previewHeight },
+          infoPanel: { x: 0, y: 0, width: 0, height: 0 },
+          startButton: { x: margin, y: newStartButtonY, width: contentWidth, height: startButtonHeight },
+          configPanel: { x: margin, y: newConfigPanelY, width: contentWidth, height: configPanelHeight }
+        };
+      }
 
       return {
         centerX,
@@ -251,7 +265,7 @@ export class MainMenu {
     const previewX = previewMargin;
     const previewY = previewMargin;
 
-    const headerHeight = 227; // 200 + ~27px (aproximadamente 7mm)
+    const headerHeight = 227;
     const configPanelHeight = 360;
     const configPanelWidth = Math.min(500, canvasWidth - margin * 2);
     const configPanelX = centerX - configPanelWidth / 2;
@@ -290,7 +304,6 @@ export class MainMenu {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
-
 
   private renderTitle(centerX: number) {
     const ctx = this.ctx;
@@ -508,13 +521,7 @@ export class MainMenu {
     this.renderOptionButtons(difficultyOptions, y, this.config.difficulty, centerX, true);
   }
 
-  private renderFooter(centerX: number, canvasHeight: number) {
-    const ctx = this.ctx;
-    ctx.fillStyle = "#64748b";
-    ctx.font = "12px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("Presiona ESC durante el juego para pausar", centerX, canvasHeight - 30);
-  }
+
 
 
   private renderWorldPreview(x: number, y: number, width: number, height: number): void {
@@ -637,9 +644,12 @@ export class MainMenu {
     const centerX = centerXOverride ?? this.canvas.width / 2;
 
     // Botones más compactos
-    const buttonWidth = this.useMobileLayout ? 80 : 100;
+    // Botones más compactos
+    // Calculate button width based on available space if needed
+    const maxButtonWidth = this.useMobileLayout ? (this.canvas.width - 40) / options.length - 10 : 100;
+    const buttonWidth = Math.min(this.useMobileLayout ? 80 : 100, maxButtonWidth);
     const buttonHeight = 50;
-    const spacing = 12;
+    const spacing = 8; // Reduced spacing
 
     const totalWidth = options.length * buttonWidth + (options.length - 1) * spacing;
     let startX = centerX - totalWidth / 2;
@@ -710,5 +720,12 @@ export class MainMenu {
 
   hide() {
     this.isVisible = false;
+  }
+  private renderFooter(centerX: number, canvasHeight: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.font = "11px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("v1.0.0 - Alpha Build", centerX, canvasHeight - 20);
   }
 }
