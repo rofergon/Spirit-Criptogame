@@ -70,11 +70,28 @@ export class Game {
   private zoomOutButton = document.querySelector<HTMLButtonElement>("#zoom-out");
   private speedButtons: HTMLButtonElement[] = [];
   private speedMultiplier = 1;
+  private mobileMediaQuery: MediaQueryList;
+  private useMobileLayout = false;
+  private mobileActionBar: HTMLDivElement | null = null;
+  private mobileHintBubble: HTMLDivElement | null = null;
+  private mobileHintTimeout: number | null = null;
+  private mobileBuildLabel: HTMLSpanElement | null = null;
+  private mobilePlanningButtons: Partial<Record<PlanningMode, HTMLButtonElement>> = {};
+  private touchStart: { x: number; y: number } | null = null;
+  private touchLast: { x: number; y: number } | null = null;
+  private touchMoved = false;
+  private pinchStartDistance: number | null = null;
+  private pinchStartZoom: number | null = null;
+  private isTouchPanning = false;
 
   constructor(private canvas: HTMLCanvasElement) {
+    this.mobileMediaQuery = window.matchMedia("(max-width: 900px)");
+    this.useMobileLayout = this.shouldUseMobileLayout();
+    document.body.classList.toggle("is-mobile", this.useMobileLayout);
+
     this.renderer = new GameRenderer(canvas);
     this.camera = new CameraController({ canvas, minZoom: this.minZoom, maxZoom: this.maxZoom }, () => this.simulation?.getWorld() ?? null);
-    this.mainMenu = new MainMenu(canvas);
+    this.mainMenu = new MainMenu(canvas, { isMobile: this.useMobileLayout });
     this.camera.setViewTarget({ x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 });
 
     this.hud.setupHeaderButtons(this.handlePauseToggle);
@@ -93,12 +110,63 @@ export class Game {
     window.addEventListener("mouseup", this.handleMouseUp);
     window.addEventListener("mousemove", this.handlePanMove);
     window.addEventListener("blur", this.stopPanning);
+    this.mobileMediaQuery.addEventListener("change", this.syncMobileLayout);
+    window.addEventListener("orientationchange", this.syncMobileLayout);
     this.handleResize();
+    this.initializeMobileUI();
 
     // Iniciar el loop de renderizado inmediatamente para mostrar el menú
     this.running = true;
     this.lastTime = performance.now();
     requestAnimationFrame(this.loop);
+  }
+
+  private shouldUseMobileLayout() {
+    const prefersSmallScreen =
+      typeof window !== "undefined" && "matchMedia" in window && this.mobileMediaQuery.matches;
+    const touchCapable = (typeof window !== "undefined" && "ontouchstart" in window) || (typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
+    return Boolean(prefersSmallScreen || touchCapable);
+  }
+
+  private syncMobileLayout = () => {
+    const next = this.shouldUseMobileLayout();
+    if (next === this.useMobileLayout) {
+      return;
+    }
+    this.useMobileLayout = next;
+    document.body.classList.toggle("is-mobile", this.useMobileLayout);
+    this.mainMenu.setMobileMode(this.useMobileLayout);
+    if (this.useMobileLayout) {
+      this.initializeMobileUI();
+    } else {
+      this.teardownMobileUI();
+    }
+    this.handleResize();
+  };
+
+  private initializeMobileUI() {
+    if (!this.useMobileLayout) {
+      return;
+    }
+    this.createMobileActionBar();
+    this.setupMobileTooltips();
+    this.updatePlanningButtons();
+    this.updateStructureDetails();
+    if (this.planningHintLabel?.textContent) {
+      this.updateMobileHint(this.planningHintLabel.textContent, true);
+    }
+  }
+
+  private teardownMobileUI() {
+    this.mobileActionBar?.remove();
+    this.mobileActionBar = null;
+    this.mobilePlanningButtons = {};
+    this.mobileHintBubble = null;
+    this.mobileBuildLabel = null;
+    if (this.mobileHintTimeout) {
+      window.clearTimeout(this.mobileHintTimeout);
+      this.mobileHintTimeout = null;
+    }
   }
 
   private initializeGame() {
@@ -132,6 +200,154 @@ export class Game {
     this.mainMenu.hide();
     this.initializeGame();
     // El loop continuará automáticamente después de cerrar el menú
+  }
+
+  private createMobileActionBar() {
+    if (this.mobileActionBar) {
+      return;
+    }
+    const bar = document.createElement("div");
+    bar.id = "mobile-action-bar";
+    bar.innerHTML = `
+      <div class="mobile-action-row">
+        <button type="button" data-mobile-mode="farm" aria-label="Cultivos" data-mobile-tip="Marca zonas fértiles para sembrar.">🌾</button>
+        <button type="button" data-mobile-mode="mine" aria-label="Minería" data-mobile-tip="Prioriza canteras y colinas.">🪨</button>
+        <button type="button" data-mobile-mode="gather" aria-label="Recolección" data-mobile-tip="Recolecta recursos naturales rápidos.">🍃</button>
+        <button type="button" data-mobile-mode="build" class="mobile-build-button" aria-label="Construcción" data-mobile-tip="Crea planos de edificio donde toques.">
+          🧱 <span id="mobile-build-label">-</span>
+        </button>
+      </div>
+      <div class="mobile-action-row mobile-secondary-row">
+        <button type="button" data-mobile-action="prev-structure" aria-label="Edificio anterior" data-mobile-tip="Cambiar al edificio anterior.">◀</button>
+        <button type="button" data-mobile-action="pause" aria-label="Pausar o reanudar" data-mobile-tip="Pausa o reanuda la simulación.">⏯️</button>
+        <button type="button" data-mobile-action="next-structure" aria-label="Siguiente edificio" data-mobile-tip="Cambiar al siguiente edificio.">▶</button>
+        <button type="button" data-mobile-action="zoom-out" aria-label="Alejar" data-mobile-tip="Alejar el mapa.">−</button>
+        <button type="button" data-mobile-action="zoom-in" aria-label="Acercar" data-mobile-tip="Acercar el mapa.">+</button>
+      </div>
+      <div id="mobile-hint-bubble" aria-live="polite"></div>
+    `;
+    document.body.appendChild(bar);
+    this.mobileActionBar = bar;
+    this.mobileHintBubble = bar.querySelector<HTMLDivElement>("#mobile-hint-bubble");
+    this.mobileBuildLabel = bar.querySelector<HTMLSpanElement>("#mobile-build-label");
+    this.mobilePlanningButtons = {
+      farm: bar.querySelector<HTMLButtonElement>('[data-mobile-mode="farm"]') ?? undefined,
+      mine: bar.querySelector<HTMLButtonElement>('[data-mobile-mode="mine"]') ?? undefined,
+      gather: bar.querySelector<HTMLButtonElement>('[data-mobile-mode="gather"]') ?? undefined,
+      build: bar.querySelector<HTMLButtonElement>('[data-mobile-mode="build"]') ?? undefined,
+    };
+    this.registerMobileActionHandlers(bar);
+  }
+
+  private registerMobileActionHandlers(bar: HTMLDivElement) {
+    const modeButtons = bar.querySelectorAll<HTMLButtonElement>("[data-mobile-mode]");
+    modeButtons.forEach((btn) => {
+      const mode = btn.dataset.mobileMode as PlanningMode | undefined;
+      if (!mode) return;
+      btn.addEventListener("click", () => {
+        this.togglePlanningMode(mode);
+        this.updateMobileHint(btn.dataset.mobileTip ?? `Modo ${mode}`);
+      });
+      this.attachMobileTip(btn, btn.dataset.mobileTip ?? "");
+    });
+
+    const prevButton = bar.querySelector<HTMLButtonElement>('[data-mobile-action="prev-structure"]');
+    const nextButton = bar.querySelector<HTMLButtonElement>('[data-mobile-action="next-structure"]');
+    const pauseButton = bar.querySelector<HTMLButtonElement>('[data-mobile-action="pause"]');
+    const zoomInButton = bar.querySelector<HTMLButtonElement>('[data-mobile-action="zoom-in"]');
+    const zoomOutButton = bar.querySelector<HTMLButtonElement>('[data-mobile-action="zoom-out"]');
+
+    prevButton?.addEventListener("click", () => {
+      this.activatePlanningMode("build");
+      this.cycleStructure(-1);
+      this.updateMobileHint("Edificio anterior");
+    });
+    nextButton?.addEventListener("click", () => {
+      this.activatePlanningMode("build");
+      this.cycleStructure(1);
+      this.updateMobileHint("Siguiente edificio");
+    });
+    pauseButton?.addEventListener("click", () => {
+      this.handlePauseToggle();
+      this.updateMobileHint(this.running ? "▶️ Simulación en curso" : "⏸️ En pausa");
+    });
+    zoomInButton?.addEventListener("click", () => {
+      const anchor = this.hoveredCell ? { x: this.hoveredCell.x + 0.5, y: this.hoveredCell.y + 0.5 } : null;
+      this.camera.adjustZoom(0.25, anchor ?? undefined);
+      this.updateMobileHint("Acercar mapa");
+    });
+    zoomOutButton?.addEventListener("click", () => {
+      const anchor = this.hoveredCell ? { x: this.hoveredCell.x + 0.5, y: this.hoveredCell.y + 0.5 } : null;
+      this.camera.adjustZoom(-0.25, anchor ?? undefined);
+      this.updateMobileHint("Alejar mapa");
+    });
+
+    [prevButton, nextButton, pauseButton, zoomInButton, zoomOutButton].forEach((btn) => {
+      this.attachMobileTip(btn, btn?.dataset.mobileTip ?? "");
+    });
+  }
+
+  private setupMobileTooltips() {
+    if (!this.useMobileLayout) {
+      return;
+    }
+    const tipTargets: Array<[HTMLElement | null, string]> = [
+      [this.zoomInButton, "Acercar mapa"],
+      [this.zoomOutButton, "Alejar mapa"],
+      [this.structurePrevButton, "Edificio anterior"],
+      [this.structureNextButton, "Siguiente edificio"],
+      [this.planningHintLabel, "Elige un modo y pinta sobre el mapa."],
+    ];
+    this.planningButtons.forEach((button) => {
+      const mode = button.dataset.planningMode as PlanningMode | undefined;
+      if (!mode) return;
+      const defaultHints: Record<PlanningMode, string> = {
+        farm: "Marca campos de cultivo.",
+        mine: "Señala minas y canteras.",
+        gather: "Recolecta recursos naturales.",
+        build: "Coloca planos de edificios.",
+      };
+      tipTargets.push([button, defaultHints[mode]]);
+    });
+    tipTargets.forEach(([el, message]) => this.attachMobileTip(el, message));
+  }
+
+  private attachMobileTip(element: HTMLElement | null, message: string) {
+    if (!element || !message) {
+      return;
+    }
+    if ((element as HTMLElement).dataset.tipBound === "true") {
+      return;
+    }
+    element.dataset.tipBound = "true";
+    element.setAttribute("data-mobile-tip", message);
+    element.addEventListener("pointerup", () => this.updateMobileHint(message));
+    element.addEventListener("focus", () => this.updateMobileHint(message, true));
+  }
+
+  private updateMobileHint(text: string, sticky = false) {
+    if (!this.useMobileLayout || !this.mobileHintBubble) {
+      return;
+    }
+    this.mobileHintBubble.textContent = this.formatMobileHint(text);
+    this.mobileHintBubble.classList.add("visible");
+    if (this.mobileHintTimeout) {
+      window.clearTimeout(this.mobileHintTimeout);
+      this.mobileHintTimeout = null;
+    }
+    if (!sticky) {
+      this.mobileHintTimeout = window.setTimeout(() => {
+        this.mobileHintBubble?.classList.remove("visible");
+      }, 2600);
+    }
+  }
+
+  private formatMobileHint(text: string) {
+    const trimmed = text.trim();
+    if (trimmed.length <= 90) {
+      return trimmed;
+    }
+    return `${trimmed.slice(0, 88)}…`;
   }
 
   start() {
@@ -177,6 +393,10 @@ export class Game {
     this.canvas.addEventListener("wheel", this.handleCanvasWheel, { passive: false });
     this.canvas.addEventListener("mousedown", this.handleMouseDown);
     this.canvas.addEventListener("mouseleave", this.handleCanvasLeave);
+    this.canvas.addEventListener("touchstart", this.handleTouchStart, { passive: false });
+    this.canvas.addEventListener("touchmove", this.handleTouchMove, { passive: false });
+    this.canvas.addEventListener("touchend", this.handleTouchEnd);
+    this.canvas.addEventListener("touchcancel", this.handleTouchCancel);
 
     // Ocultar tooltip al hacer scroll o redimensionar
     window.addEventListener("scroll", this.hideTooltip);
@@ -338,6 +558,12 @@ export class Game {
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
     });
+    Object.entries(this.mobilePlanningButtons).forEach(([mode, button]) => {
+      if (!button) return;
+      const active = mode === this.planningPriority;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
   }
 
   private updatePlanningHint(message?: string) {
@@ -371,6 +597,7 @@ export class Game {
   private setPlanningHint(text: string) {
     if (!this.planningHintLabel) return;
     this.planningHintLabel.textContent = text;
+    this.updateMobileHint(text, true);
   }
 
   private updateBuildSelectorVisibility() {
@@ -463,6 +690,10 @@ export class Game {
       if (this.buildDetailsRequirements) {
         this.buildDetailsRequirements.textContent = "-";
       }
+      if (this.mobileBuildLabel) {
+        this.mobileBuildLabel.textContent = "—";
+        this.mobileBuildLabel.title = "Sin edificios disponibles";
+      }
       return;
     }
 
@@ -490,6 +721,10 @@ export class Game {
       if (this.buildDetailsRequirements) {
         this.buildDetailsRequirements.textContent = this.formatStructureRequirements(definition.requirements);
       }
+    }
+    if (this.mobileBuildLabel) {
+      this.mobileBuildLabel.textContent = definition?.icon ?? "🧱";
+      this.mobileBuildLabel.title = definition?.displayName ?? this.selectedStructureType;
     }
   }
 
@@ -579,10 +814,12 @@ export class Game {
 
     // Si el menú está visible, solo renderizarlo
     if (this.mainMenu.isMenuVisible()) {
+      this.mobileActionBar?.classList.add("is-hidden");
       this.mainMenu.render();
       requestAnimationFrame(this.loop);
       return;
     }
+    this.mobileActionBar?.classList.remove("is-hidden");
 
     // Si el juego no está inicializado pero el menú se cerró, inicializar ahora
     if (!this.gameInitialized) {
@@ -797,6 +1034,168 @@ export class Game {
     this.updateCitizenPanel();
   };
 
+  private handleTouchStart = (event: TouchEvent) => {
+    if (!this.gameInitialized || !this.canvas) {
+      return;
+    }
+    if (event.touches.length === 0) {
+      return;
+    }
+    this.hideTooltip();
+    const primary = event.touches[0];
+    this.touchStart = { x: primary.clientX, y: primary.clientY };
+    this.touchLast = { x: primary.clientX, y: primary.clientY };
+    this.touchMoved = false;
+    this.isTouchPanning = false;
+
+    if (event.touches.length === 2) {
+      this.pinchStartDistance = this.getPinchDistance(event.touches);
+      this.pinchStartZoom = this.camera.getZoom();
+    } else if (this.planningPriority) {
+      event.preventDefault();
+      const pos = { x: primary.clientX, y: primary.clientY };
+      this.handlePlanningTouch(pos);
+    }
+  };
+
+  private handleTouchMove = (event: TouchEvent) => {
+    if (!this.gameInitialized) {
+      return;
+    }
+    if (event.touches.length === 2) {
+      event.preventDefault();
+      this.handlePinchZoom(event);
+      return;
+    }
+    const primary = event.touches[0];
+    if (!primary) return;
+    const current = { x: primary.clientX, y: primary.clientY };
+    this.touchLast = current;
+    const movedEnough = this.touchStart
+      ? Math.hypot(current.x - this.touchStart.x, current.y - this.touchStart.y) > 6
+      : false;
+    this.touchMoved = this.touchMoved || movedEnough;
+
+    if (this.planningStrokeActive && this.planningPriority && this.planningPriority !== "build") {
+      const cell = this.camera.getCellUnderPointer({ clientX: current.x, clientY: current.y } as MouseEvent);
+      if (cell) {
+        this.hoveredCell = cell;
+        this.applyPlanningAtCell(cell);
+      }
+      return;
+    }
+
+    if (!this.planningPriority) {
+      if (movedEnough) {
+        event.preventDefault();
+        if (!this.camera) return;
+        if (!this.isTouchPanning) {
+          this.camera.startPanning(current);
+          this.isTouchPanning = true;
+        }
+        this.camera.pan(current);
+      }
+      return;
+    }
+  };
+
+  private handleTouchEnd = (event: TouchEvent) => {
+    if (!this.gameInitialized) {
+      return;
+    }
+    if (event.touches.length > 0) {
+      return;
+    }
+
+    const last = this.touchLast;
+    const moved = this.touchMoved;
+    this.touchStart = null;
+    this.touchLast = null;
+    this.touchMoved = false;
+    this.pinchStartDistance = null;
+    this.pinchStartZoom = null;
+    this.camera.stopPanning();
+    this.isTouchPanning = false;
+
+    if (!last) {
+      return;
+    }
+
+    if (!moved) {
+      const pseudoEvent = { clientX: last.x, clientY: last.y } as MouseEvent;
+      if (!this.planningPriority) {
+        this.handleCanvasClick(pseudoEvent);
+      } else {
+        this.planningStrokeActive = false;
+        this.planningStrokeCells.clear();
+      }
+    } else if (this.planningPriority && this.planningStrokeActive) {
+      this.planningStrokeActive = false;
+      this.planningStrokeCells.clear();
+    }
+  };
+
+  private handleTouchCancel = () => {
+    this.touchStart = null;
+    this.touchLast = null;
+    this.touchMoved = false;
+    this.pinchStartDistance = null;
+    this.pinchStartZoom = null;
+    this.camera.stopPanning();
+    this.isTouchPanning = false;
+    this.stopPanning();
+  };
+
+  private handlePlanningTouch(position: { x: number; y: number }) {
+    const eventLike = { clientX: position.x, clientY: position.y } as MouseEvent;
+    const cell = this.camera.getCellUnderPointer(eventLike);
+    if (!cell) {
+      return;
+    }
+    if (this.planningPriority === "build") {
+      this.applyStructurePlan(cell);
+      this.planningStrokeActive = false;
+      this.planningStrokeCells.clear();
+    } else {
+      this.planningStrokeActive = true;
+      this.planningStrokeCells.clear();
+      this.applyPlanningAtCell(cell);
+    }
+  }
+
+  private handlePinchZoom(event: TouchEvent) {
+    if (event.touches.length !== 2 || !this.gameInitialized) {
+      return;
+    }
+    const dist = this.getPinchDistance(event.touches);
+    if (this.pinchStartDistance === null) {
+      this.pinchStartDistance = dist;
+      this.pinchStartZoom = this.camera.getZoom();
+      return;
+    }
+    if (!this.pinchStartZoom) {
+      this.pinchStartZoom = this.camera.getZoom();
+    }
+    if (dist <= 0 || this.pinchStartDistance <= 0) {
+      return;
+    }
+    const scale = dist / this.pinchStartDistance;
+    const newZoom = this.pinchStartZoom * scale;
+    const center = this.getPinchCenter(event.touches);
+    const anchor = this.camera.getWorldPosition({ clientX: center.x, clientY: center.y } as MouseEvent);
+    this.camera.setZoom(newZoom, anchor ?? undefined);
+  }
+
+  private getPinchDistance(touches: TouchList) {
+    const [a, b] = [touches[0], touches[1]];
+    return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+  }
+
+  private getPinchCenter(touches: TouchList) {
+    const [a, b] = [touches[0], touches[1]];
+    return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+  }
+
   private handleCitizenPanelSelection = (citizenId: number) => {
     if (!this.gameInitialized || !this.simulation) {
       return;
@@ -934,9 +1333,10 @@ export class Game {
     if (!gameWrapper) return;
 
     const wrapperRect = gameWrapper.getBoundingClientRect();
-    const padding = 32;
+    const padding = this.useMobileLayout ? 12 : 32;
+    const mobileOffset = this.useMobileLayout ? 96 : 0;
     const availableWidth = wrapperRect.width - padding;
-    const availableHeight = wrapperRect.height - padding;
+    const availableHeight = wrapperRect.height - padding - mobileOffset;
     const size = Math.max(0, Math.min(availableWidth, availableHeight));
 
     this.canvas.style.width = `${size}px`;
@@ -950,6 +1350,9 @@ export class Game {
 
   destroy() {
     this.cellTooltip.destroy();
+    this.teardownMobileUI();
+    this.mobileMediaQuery.removeEventListener("change", this.syncMobileLayout);
+    window.removeEventListener("orientationchange", this.syncMobileLayout);
     // Limpiar otros event listeners si es necesario
   }
 

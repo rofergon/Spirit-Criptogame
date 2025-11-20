@@ -43,13 +43,15 @@ export class MainMenu {
   private lastPreviewUpdate = 0;
   private readonly previewThrottleMs = 220;
   private buttonRegions: Partial<Record<MenuButtonKey, ButtonRegion>> = {};
+  private useMobileLayout: boolean;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, options?: { isMobile?: boolean }) {
     this.canvas = canvas;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("No se pudo obtener el contexto 2D");
     this.ctx = ctx;
     this.seedInputValue = this.config.seed.toString();
+    this.useMobileLayout = options?.isMobile ?? false;
 
     this.setupEventListeners();
     this.requestPreviewUpdate();
@@ -202,9 +204,53 @@ export class MainMenu {
 
   private calculateLayout(canvasWidth: number, canvasHeight: number) {
     const centerX = canvasWidth / 2;
-    const margin = 40;
+    const margin = this.useMobileLayout ? 10 : 40;
 
-    // Preview del mundo - ocupa toda la pantalla
+    if (this.useMobileLayout) {
+      const available = canvasHeight - margin * 2;
+      const gap = 8;
+
+      let previewHeight = Math.max(120, available * 0.32);
+      let configPanelHeight = Math.max(130, available * 0.3);
+      const infoPanelHeight = Math.max(56, available * 0.12);
+      const startButtonHeight = 52;
+
+      let usedHeight = previewHeight + gap + configPanelHeight + gap + infoPanelHeight + gap + startButtonHeight;
+      if (usedHeight > available) {
+        const shrinkable = previewHeight + configPanelHeight;
+        const overflow = usedHeight - available;
+        const factor = Math.max(0.55, (shrinkable - overflow) / shrinkable);
+        previewHeight *= factor;
+        configPanelHeight *= factor;
+        usedHeight = previewHeight + gap + configPanelHeight + gap + infoPanelHeight + gap + startButtonHeight;
+      }
+
+      const previewWidth = canvasWidth - margin * 2;
+      const previewX = margin;
+      const previewY = margin;
+
+      const configPanelWidth = canvasWidth - margin * 2;
+      const configPanelX = centerX - configPanelWidth / 2;
+      const configPanelY = previewY + previewHeight + gap;
+
+      const infoPanelWidth = canvasWidth - margin * 2;
+      const infoPanelX = centerX - infoPanelWidth / 2;
+      const infoPanelY = configPanelY + configPanelHeight + gap;
+
+      const startButtonWidth = canvasWidth - margin * 2;
+      const startButtonX = centerX - startButtonWidth / 2;
+      const startButtonY = infoPanelY + infoPanelHeight + gap;
+
+      return {
+        centerX,
+        useColumns: false,
+        preview: { x: previewX, y: previewY, width: previewWidth, height: previewHeight },
+        infoPanel: { x: infoPanelX, y: infoPanelY, width: infoPanelWidth, height: infoPanelHeight },
+        startButton: { x: startButtonX, y: startButtonY, width: startButtonWidth, height: startButtonHeight },
+        configPanel: { x: configPanelX, y: configPanelY, width: configPanelWidth, height: configPanelHeight }
+      };
+    }
+
     const previewMargin = 100;
     const previewWidth = canvasWidth - previewMargin * 2;
     const previewHeight = canvasHeight - previewMargin * 2;
@@ -253,15 +299,17 @@ export class MainMenu {
 
   private renderTitle(centerX: number) {
     const ctx = this.ctx;
+    const titleSize = this.useMobileLayout ? 34 : 48;
+    const subtitleSize = this.useMobileLayout ? 14 : 18;
 
     ctx.fillStyle = "#f0e7dc";
-    ctx.font = "bold 48px Arial";
+    ctx.font = `bold ${titleSize}px Arial`;
     ctx.textAlign = "center";
-    ctx.fillText("🏛️ MUNDO", centerX, 90);
+    ctx.fillText("🏛️ MUNDO", centerX, this.useMobileLayout ? 64 : 90);
 
-    ctx.font = "18px Arial";
+    ctx.font = `${subtitleSize}px Arial`;
     ctx.fillStyle = "#94a3b8";
-    ctx.fillText("Configura tu civilización antes de comenzar", centerX, 130);
+    ctx.fillText("Configura tu civilización antes de comenzar", centerX, this.useMobileLayout ? 95 : 130);
   }
 
   private renderInfoPanel(bounds: { x: number; y: number; width: number; height: number }) {
@@ -282,17 +330,40 @@ export class MainMenu {
     ctx.fillText("ℹ️ Información:", bounds.x + 16, bounds.y + 22);
 
     // Lista de información
-    ctx.fillStyle = "#cbd5e1";
-    ctx.font = "12px Arial";
-    const tips = [
-      "• La misma semilla genera el mismo mundo",
-      "• Mundos más grandes = más exploración",
-      "• Puedes copiar la semilla para compartir"
-    ];
+    if (this.useMobileLayout) {
+      const tiles: Array<{ icon: string; text: string }> = [
+        { icon: "👆", text: "Toca y arrastra para mirar el mapa" },
+        { icon: "🎲", text: "Pulsa 🎲 para cambiar la semilla" },
+        { icon: "⚙️", text: "Desliza las tarjetas para ajustar tamaño y dificultad" }
+      ];
+      const tileWidth = (bounds.width - 32) / tiles.length;
+      const tileHeight = 40;
+      tiles.forEach((tile, i) => {
+        const x = bounds.x + 12 + i * tileWidth;
+        const y = bounds.y + 30;
+        ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
+        ctx.fillRect(x, y, tileWidth - 8, tileHeight);
+        ctx.strokeStyle = "rgba(147, 197, 253, 0.5)";
+        ctx.strokeRect(x, y, tileWidth - 8, tileHeight);
 
-    tips.forEach((tip, i) => {
-      ctx.fillText(tip, bounds.x + 16, bounds.y + 44 + i * 18);
-    });
+        ctx.fillStyle = "#e2e8f0";
+        ctx.font = "12px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText(`${tile.icon} ${tile.text}`, x + 10, y + 25);
+      });
+    } else {
+      ctx.fillStyle = "#cbd5e1";
+      ctx.font = "12px Arial";
+      const tips = [
+        "• La misma semilla genera el mismo mundo",
+        "• Mundos más grandes = más exploración",
+        "• Puedes copiar la semilla para compartir"
+      ];
+
+      tips.forEach((tip, i) => {
+        ctx.fillText(tip, bounds.x + 16, bounds.y + 44 + i * 18);
+      });
+    }
   }
 
   private renderStartButton(bounds: { x: number; y: number; width: number; height: number }) {
@@ -336,18 +407,18 @@ export class MainMenu {
     ctx.lineWidth = 2;
     ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
 
-    const padding = 24;
+    const padding = this.useMobileLayout ? 16 : 24;
     let currentY = bounds.y + padding + 10;
     const contentX = bounds.x + padding;
     const contentWidth = bounds.width - padding * 2;
 
     // Sección: Semilla
     currentY = this.renderSeedSection(contentX, currentY, contentWidth);
-    currentY += 40;
+    currentY += this.useMobileLayout ? 26 : 40;
 
     // Sección: Tamaño del mundo
     currentY = this.renderWorldSizeSection(contentX, currentY, bounds.x + bounds.width / 2);
-    currentY += 70;
+    currentY += this.useMobileLayout ? 55 : 70;
 
     // Sección: Dificultad
     this.renderDifficultySection(contentX, currentY, bounds.x + bounds.width / 2);
@@ -365,9 +436,9 @@ export class MainMenu {
     y += 28;
 
     // Input de semilla y botón aleatorio
-    const inputHeight = 42;
-    const randomWidth = 130;
-    const spacing = 12;
+    const inputHeight = this.useMobileLayout ? 38 : 42;
+    const randomWidth = this.useMobileLayout ? 110 : 130;
+    const spacing = this.useMobileLayout ? 8 : 12;
     const inputWidth = width - randomWidth - spacing;
 
     // Input box
@@ -388,7 +459,7 @@ export class MainMenu {
     ctx.strokeRect(x, y, inputWidth, inputHeight);
 
     ctx.fillStyle = "#f0e7dc";
-    ctx.font = "20px 'Courier New'";
+    ctx.font = this.useMobileLayout ? "18px 'Courier New'" : "20px 'Courier New'";
     ctx.textAlign = "left";
     ctx.fillText(this.seedInputValue || "0", x + 12, y + 27);
 
@@ -413,7 +484,7 @@ export class MainMenu {
     ctx.strokeRect(randomX, y, randomWidth, inputHeight);
 
     ctx.fillStyle = isRandomHovered ? "#c4b5fd" : "#a78bfa";
-    ctx.font = "14px Arial";
+    ctx.font = this.useMobileLayout ? "13px Arial" : "14px Arial";
     ctx.textAlign = "center";
     ctx.fillText("🎲 Aleatorio", randomX + randomWidth / 2, y + 26);
 
@@ -489,9 +560,9 @@ export class MainMenu {
     ctx.fillText(`Semilla ${this.config.seed} • ${this.config.worldSize}x${this.config.worldSize}`, x + 12, y + 42);
 
     const previewWorld = this.ensurePreviewWorld();
-    const gridTopOffset = 50;
-    const availableWidth = width - 40;
-    const availableHeight = height - gridTopOffset - 20;
+    const gridTopOffset = this.useMobileLayout ? 28 : 50;
+    const availableWidth = width - 24;
+    const availableHeight = height - gridTopOffset - 16;
 
     if (!previewWorld) {
       ctx.fillStyle = "#94a3b8";
@@ -588,9 +659,9 @@ export class MainMenu {
   ) {
     const ctx = this.ctx;
     const centerX = centerXOverride ?? this.canvas.width / 2;
-    const buttonWidth = 110;
-    const buttonHeight = 40;
-    const spacing = 10;
+    const buttonWidth = this.useMobileLayout ? 96 : 110;
+    const buttonHeight = this.useMobileLayout ? 36 : 40;
+    const spacing = this.useMobileLayout ? 8 : 10;
 
     const totalWidth = options.length * buttonWidth + (options.length - 1) * spacing;
     let startX = centerX - totalWidth / 2;
@@ -634,9 +705,9 @@ export class MainMenu {
   ) {
     const ctx = this.ctx;
     const centerX = centerXOverride ?? this.canvas.width / 2;
-    const buttonWidth = 110;
-    const buttonHeight = 50;
-    const spacing = 10;
+    const buttonWidth = this.useMobileLayout ? 96 : 110;
+    const buttonHeight = this.useMobileLayout ? 46 : 50;
+    const spacing = this.useMobileLayout ? 8 : 10;
 
     const totalWidth = options.length * buttonWidth + (options.length - 1) * spacing;
     let startX = centerX - totalWidth / 2;
@@ -676,6 +747,11 @@ export class MainMenu {
 
       startX += buttonWidth + spacing;
     });
+  }
+
+  setMobileMode(isMobile: boolean) {
+    this.useMobileLayout = isMobile;
+    this.requestPreviewUpdate();
   }
 
   isMenuVisible(): boolean {
