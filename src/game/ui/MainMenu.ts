@@ -192,62 +192,51 @@ export class MainMenu {
     // Panel de configuración (superpuesto sobre el mapa)
     this.renderConfigPanel(layout.configPanel);
 
-    // Panel de información
-    this.renderInfoPanel(layout.infoPanel);
+    // Panel de información (solo desktop o muy minimalista en móvil)
+    if (!this.useMobileLayout) {
+      this.renderInfoPanel(layout.infoPanel);
+    }
 
     // Botón de inicio
     this.renderStartButton(layout.startButton);
 
     // Footer
-    this.renderFooter(layout.centerX, canvasHeight);
+    if (!this.useMobileLayout) {
+      this.renderFooter(layout.centerX, canvasHeight);
+    }
   }
 
   private calculateLayout(canvasWidth: number, canvasHeight: number) {
     const centerX = canvasWidth / 2;
-    const margin = this.useMobileLayout ? 10 : 40;
+    const margin = this.useMobileLayout ? 12 : 40;
 
     if (this.useMobileLayout) {
       const available = canvasHeight - margin * 2;
-      const gap = 8;
+      const gap = 12;
 
-      let previewHeight = Math.max(120, available * 0.32);
-      let configPanelHeight = Math.max(130, available * 0.3);
-      const infoPanelHeight = Math.max(56, available * 0.12);
-      const startButtonHeight = 52;
+      // Alturas fijas para componentes móviles
+      const titleHeight = 50;
+      const configPanelHeight = 260; // Más compacto
+      const startButtonHeight = 56;
 
-      let usedHeight = previewHeight + gap + configPanelHeight + gap + infoPanelHeight + gap + startButtonHeight;
-      if (usedHeight > available) {
-        const shrinkable = previewHeight + configPanelHeight;
-        const overflow = usedHeight - available;
-        const factor = Math.max(0.55, (shrinkable - overflow) / shrinkable);
-        previewHeight *= factor;
-        configPanelHeight *= factor;
-        usedHeight = previewHeight + gap + configPanelHeight + gap + infoPanelHeight + gap + startButtonHeight;
-      }
+      // El preview ocupa el espacio restante, pero con un mínimo
+      let previewHeight = available - titleHeight - configPanelHeight - startButtonHeight - gap * 3;
+      previewHeight = Math.max(100, previewHeight);
 
-      const previewWidth = canvasWidth - margin * 2;
-      const previewX = margin;
-      const previewY = margin;
+      const contentWidth = canvasWidth - margin * 2;
 
-      const configPanelWidth = canvasWidth - margin * 2;
-      const configPanelX = centerX - configPanelWidth / 2;
+      // Posiciones
+      const previewY = margin + titleHeight + gap;
       const configPanelY = previewY + previewHeight + gap;
-
-      const infoPanelWidth = canvasWidth - margin * 2;
-      const infoPanelX = centerX - infoPanelWidth / 2;
-      const infoPanelY = configPanelY + configPanelHeight + gap;
-
-      const startButtonWidth = canvasWidth - margin * 2;
-      const startButtonX = centerX - startButtonWidth / 2;
-      const startButtonY = infoPanelY + infoPanelHeight + gap;
+      const startButtonY = configPanelY + configPanelHeight + gap;
 
       return {
         centerX,
         useColumns: false,
-        preview: { x: previewX, y: previewY, width: previewWidth, height: previewHeight },
-        infoPanel: { x: infoPanelX, y: infoPanelY, width: infoPanelWidth, height: infoPanelHeight },
-        startButton: { x: startButtonX, y: startButtonY, width: startButtonWidth, height: startButtonHeight },
-        configPanel: { x: configPanelX, y: configPanelY, width: configPanelWidth, height: configPanelHeight }
+        preview: { x: margin, y: previewY, width: contentWidth, height: previewHeight },
+        infoPanel: { x: 0, y: 0, width: 0, height: 0 }, // Oculto en móvil
+        startButton: { x: margin, y: startButtonY, width: contentWidth, height: startButtonHeight },
+        configPanel: { x: margin, y: configPanelY, width: contentWidth, height: configPanelHeight }
       };
     }
 
@@ -297,73 +286,49 @@ export class MainMenu {
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
+
   private renderTitle(centerX: number) {
     const ctx = this.ctx;
-    const titleSize = this.useMobileLayout ? 34 : 48;
+    const titleSize = this.useMobileLayout ? 28 : 48;
     const subtitleSize = this.useMobileLayout ? 14 : 18;
+    const yPos = this.useMobileLayout ? 40 : 90;
 
     ctx.fillStyle = "#f0e7dc";
-    ctx.font = `bold ${titleSize}px Arial`;
+    ctx.font = `bold ${titleSize}px "Space Grotesk", Arial`;
     ctx.textAlign = "center";
-    ctx.fillText("🏛️ MUNDO", centerX, this.useMobileLayout ? 64 : 90);
+    ctx.fillText("🏛️ MUNDO", centerX, yPos);
 
-    ctx.font = `${subtitleSize}px Arial`;
-    ctx.fillStyle = "#94a3b8";
-    ctx.fillText("Configura tu civilización antes de comenzar", centerX, this.useMobileLayout ? 95 : 130);
+    if (!this.useMobileLayout) {
+      ctx.font = `${subtitleSize}px Arial`;
+      ctx.fillStyle = "#94a3b8";
+      ctx.fillText("Configura tu civilización antes de comenzar", centerX, yPos + 40);
+    }
   }
 
   private renderInfoPanel(bounds: { x: number; y: number; width: number; height: number }) {
     const ctx = this.ctx;
-
-    // Fondo del panel semitransparente
     ctx.fillStyle = "rgba(59, 130, 246, 0.2)";
     ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
-
     ctx.strokeStyle = "rgba(59, 130, 246, 0.4)";
     ctx.lineWidth = 1;
     ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
 
-    // Título
     ctx.fillStyle = "#93c5fd";
     ctx.font = "bold 13px Arial";
     ctx.textAlign = "left";
     ctx.fillText("ℹ️ Información:", bounds.x + 16, bounds.y + 22);
 
-    // Lista de información
-    if (this.useMobileLayout) {
-      const tiles: Array<{ icon: string; text: string }> = [
-        { icon: "👆", text: "Toca y arrastra para mirar el mapa" },
-        { icon: "🎲", text: "Pulsa 🎲 para cambiar la semilla" },
-        { icon: "⚙️", text: "Desliza las tarjetas para ajustar tamaño y dificultad" }
-      ];
-      const tileWidth = (bounds.width - 32) / tiles.length;
-      const tileHeight = 40;
-      tiles.forEach((tile, i) => {
-        const x = bounds.x + 12 + i * tileWidth;
-        const y = bounds.y + 30;
-        ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
-        ctx.fillRect(x, y, tileWidth - 8, tileHeight);
-        ctx.strokeStyle = "rgba(147, 197, 253, 0.5)";
-        ctx.strokeRect(x, y, tileWidth - 8, tileHeight);
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "12px Arial";
+    const tips = [
+      "• La misma semilla genera el mismo mundo",
+      "• Mundos más grandes = más exploración",
+      "• Puedes copiar la semilla para compartir"
+    ];
 
-        ctx.fillStyle = "#e2e8f0";
-        ctx.font = "12px Arial";
-        ctx.textAlign = "left";
-        ctx.fillText(`${tile.icon} ${tile.text}`, x + 10, y + 25);
-      });
-    } else {
-      ctx.fillStyle = "#cbd5e1";
-      ctx.font = "12px Arial";
-      const tips = [
-        "• La misma semilla genera el mismo mundo",
-        "• Mundos más grandes = más exploración",
-        "• Puedes copiar la semilla para compartir"
-      ];
-
-      tips.forEach((tip, i) => {
-        ctx.fillText(tip, bounds.x + 16, bounds.y + 44 + i * 18);
-      });
-    }
+    tips.forEach((tip, i) => {
+      ctx.fillText(tip, bounds.x + 16, bounds.y + 44 + i * 18);
+    });
   }
 
   private renderStartButton(bounds: { x: number; y: number; width: number; height: number }) {
@@ -382,30 +347,41 @@ export class MainMenu {
       gradient.addColorStop(1, "#047857");
     }
 
+    // Sombra suave
+    ctx.shadowColor = "rgba(16, 185, 129, 0.4)";
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 5;
+
     ctx.fillStyle = gradient;
-    ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    ctx.beginPath();
+    ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 16);
+    ctx.fill();
+
+    ctx.shadowColor = "transparent"; // Reset shadow
 
     ctx.strokeStyle = isHovered ? "#34d399" : "#10b981";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    ctx.lineWidth = 2;
+    ctx.stroke();
 
     // Texto del botón
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 22px Arial";
+    ctx.font = "bold 20px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("🚀 COMENZAR PARTIDA", bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 + 8);
+    ctx.fillText("🚀 JUGAR", bounds.x + bounds.width / 2, bounds.y + bounds.height / 2 + 7);
   }
 
   private renderConfigPanel(bounds: { x: number; y: number; width: number; height: number }) {
     const ctx = this.ctx;
 
-    // Fondo del panel semitransparente para ver el mapa debajo
-    ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
-    ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    // Fondo del panel
+    ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+    ctx.beginPath();
+    ctx.roundRect(bounds.x, bounds.y, bounds.width, bounds.height, 16);
+    ctx.fill();
 
-    ctx.strokeStyle = "rgba(233, 204, 152, 0.5)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    ctx.strokeStyle = "rgba(233, 204, 152, 0.3)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     const padding = this.useMobileLayout ? 16 : 24;
     let currentY = bounds.y + padding + 10;
@@ -414,11 +390,11 @@ export class MainMenu {
 
     // Sección: Semilla
     currentY = this.renderSeedSection(contentX, currentY, contentWidth);
-    currentY += this.useMobileLayout ? 26 : 40;
+    currentY += this.useMobileLayout ? 20 : 40;
 
     // Sección: Tamaño del mundo
     currentY = this.renderWorldSizeSection(contentX, currentY, bounds.x + bounds.width / 2);
-    currentY += this.useMobileLayout ? 55 : 70;
+    currentY += this.useMobileLayout ? 20 : 70;
 
     // Sección: Dificultad
     this.renderDifficultySection(contentX, currentY, bounds.x + bounds.width / 2);
@@ -427,66 +403,62 @@ export class MainMenu {
   private renderSeedSection(x: number, y: number, width: number): number {
     const ctx = this.ctx;
 
-    // Título de la sección
+    // Título
     ctx.fillStyle = "#e9cc98";
-    ctx.font = "bold 16px Arial";
+    ctx.font = "bold 14px Arial";
     ctx.textAlign = "left";
-    ctx.fillText("🌱 Semilla del Mundo:", x, y);
+    ctx.fillText("SEMILLA", x, y);
 
-    y += 28;
+    y += 15;
 
-    // Input de semilla y botón aleatorio
-    const inputHeight = this.useMobileLayout ? 38 : 42;
-    const randomWidth = this.useMobileLayout ? 110 : 130;
-    const spacing = this.useMobileLayout ? 8 : 12;
+    const inputHeight = 44;
+    const randomWidth = 50; // Botón cuadrado para aleatorio
+    const spacing = 10;
     const inputWidth = width - randomWidth - spacing;
 
     // Input box
-    const isInputHovered = this.hoveredButton === "seedInput";
     const isInputFocused = this.focusedInput === "seed";
-
     this.setButtonRegion("seedInput", x, y, inputWidth, inputHeight);
 
-    ctx.fillStyle = isInputFocused
-      ? "rgba(59, 130, 246, 0.2)"
-      : isInputHovered
-        ? "rgba(100, 116, 139, 0.3)"
-        : "rgba(15, 23, 42, 0.6)";
-    ctx.fillRect(x, y, inputWidth, inputHeight);
+    ctx.fillStyle = isInputFocused ? "rgba(59, 130, 246, 0.15)" : "rgba(15, 23, 42, 0.5)";
+    ctx.beginPath();
+    ctx.roundRect(x, y, inputWidth, inputHeight, 10);
+    ctx.fill();
 
-    ctx.strokeStyle = isInputFocused ? "#3b82f6" : isInputHovered ? "#64748b" : "#475569";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, inputWidth, inputHeight);
+    ctx.strokeStyle = isInputFocused ? "#3b82f6" : "rgba(148, 163, 184, 0.3)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     ctx.fillStyle = "#f0e7dc";
-    ctx.font = this.useMobileLayout ? "18px 'Courier New'" : "20px 'Courier New'";
+    ctx.font = "18px 'Courier New'";
     ctx.textAlign = "left";
-    ctx.fillText(this.seedInputValue || "0", x + 12, y + 27);
+    ctx.fillText(this.seedInputValue || "0", x + 12, y + 28);
 
-    // Cursor parpadeante
+    // Cursor
     if (isInputFocused && Math.floor(Date.now() / 500) % 2 === 0) {
       const textWidth = ctx.measureText(this.seedInputValue).width;
       ctx.fillStyle = "#3b82f6";
       ctx.fillRect(x + 14 + textWidth, y + 12, 2, 20);
     }
 
-    // Botón aleatorio
+    // Botón aleatorio (Icono de dado)
     const randomX = x + inputWidth + spacing;
     const isRandomHovered = this.hoveredButton === "randomSeed";
 
     this.setButtonRegion("randomSeed", randomX, y, randomWidth, inputHeight);
 
-    ctx.fillStyle = isRandomHovered ? "rgba(139, 92, 246, 0.35)" : "rgba(139, 92, 246, 0.18)";
-    ctx.fillRect(randomX, y, randomWidth, inputHeight);
+    ctx.fillStyle = isRandomHovered ? "rgba(139, 92, 246, 0.3)" : "rgba(139, 92, 246, 0.15)";
+    ctx.beginPath();
+    ctx.roundRect(randomX, y, randomWidth, inputHeight, 10);
+    ctx.fill();
 
-    ctx.strokeStyle = isRandomHovered ? "#8b5cf6" : "#6d28d9";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(randomX, y, randomWidth, inputHeight);
+    ctx.strokeStyle = isRandomHovered ? "#8b5cf6" : "rgba(139, 92, 246, 0.5)";
+    ctx.stroke();
 
-    ctx.fillStyle = isRandomHovered ? "#c4b5fd" : "#a78bfa";
-    ctx.font = this.useMobileLayout ? "13px Arial" : "14px Arial";
+    ctx.fillStyle = "#c4b5fd";
+    ctx.font = "20px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("🎲 Aleatorio", randomX + randomWidth / 2, y + 26);
+    ctx.fillText("🎲", randomX + randomWidth / 2, y + 29);
 
     return y + inputHeight;
   }
@@ -494,43 +466,41 @@ export class MainMenu {
   private renderWorldSizeSection(x: number, y: number, centerX: number): number {
     const ctx = this.ctx;
 
-    // Título de la sección
     ctx.fillStyle = "#e9cc98";
-    ctx.font = "bold 16px Arial";
+    ctx.font = "bold 14px Arial";
     ctx.textAlign = "left";
-    ctx.fillText("🗺️ Tamaño del Mundo:", x, y);
+    ctx.fillText("TAMAÑO", x, y);
 
-    y += 28;
+    y += 15;
 
-    const sizeOptions: Array<{ label: string; value: number; key: MenuButtonKey }> = [
-      { label: "Pequeño", value: 24, key: "sizeSmall" },
-      { label: "Normal", value: 36, key: "sizeNormal" },
-      { label: "Grande", value: 48, key: "sizeLarge" }
+    const sizeOptions: Array<{ label: string; value: number; key: MenuButtonKey; icon: string }> = [
+      { label: "S", value: 24, key: "sizeSmall", icon: "🟩" },
+      { label: "M", value: 36, key: "sizeNormal", icon: "🟨" },
+      { label: "L", value: 48, key: "sizeLarge", icon: "🟥" }
     ];
 
     this.renderOptionButtons(sizeOptions, y, this.config.worldSize, centerX);
 
-    return y + 40;
+    return y + 50;
   }
 
   private renderDifficultySection(x: number, y: number, centerX: number) {
     const ctx = this.ctx;
 
-    // Título de la sección
     ctx.fillStyle = "#e9cc98";
-    ctx.font = "bold 16px Arial";
+    ctx.font = "bold 14px Arial";
     ctx.textAlign = "left";
-    ctx.fillText("⚔️ Dificultad:", x, y);
+    ctx.fillText("DIFICULTAD", x, y);
 
-    y += 28;
+    y += 15;
 
-    const difficultyOptions: Array<{ label: string; value: "easy" | "normal" | "hard"; key: MenuButtonKey; desc: string }> = [
-      { label: "Fácil", value: "easy", key: "difficultyEasy", desc: "8 ciudadanos" },
-      { label: "Normal", value: "normal", key: "difficultyNormal", desc: "5 ciudadanos" },
-      { label: "Difícil", value: "hard", key: "difficultyHard", desc: "3 ciudadanos" }
+    const difficultyOptions: Array<{ label: string; value: "easy" | "normal" | "hard"; key: MenuButtonKey; icon: string }> = [
+      { label: "Fácil", value: "easy", key: "difficultyEasy", icon: "😌" },
+      { label: "Normal", value: "normal", key: "difficultyNormal", icon: "😐" },
+      { label: "Difícil", value: "hard", key: "difficultyHard", icon: "💀" }
     ];
 
-    this.renderDifficultyButtons(difficultyOptions, y, centerX);
+    this.renderOptionButtons(difficultyOptions, y, this.config.difficulty, centerX, true);
   }
 
   private renderFooter(centerX: number, canvasHeight: number) {
@@ -652,16 +622,19 @@ export class MainMenu {
   }
 
   private renderOptionButtons(
-    options: Array<{ label: string; value: number; key: MenuButtonKey }>,
+    options: Array<{ label: string; value: number | string; key: MenuButtonKey; icon?: string }>,
     y: number,
-    currentValue: number,
-    centerXOverride?: number
+    currentValue: number | string,
+    centerXOverride?: number,
+    isDifficulty = false
   ) {
     const ctx = this.ctx;
     const centerX = centerXOverride ?? this.canvas.width / 2;
-    const buttonWidth = this.useMobileLayout ? 96 : 110;
-    const buttonHeight = this.useMobileLayout ? 36 : 40;
-    const spacing = this.useMobileLayout ? 8 : 10;
+
+    // Botones más compactos
+    const buttonWidth = this.useMobileLayout ? 80 : 100;
+    const buttonHeight = 50;
+    const spacing = 12;
 
     const totalWidth = options.length * buttonWidth + (options.length - 1) * spacing;
     let startX = centerX - totalWidth / 2;
@@ -670,29 +643,36 @@ export class MainMenu {
       const isSelected = option.value === currentValue;
       const isHovered = this.hoveredButton === option.key;
 
-      if (isSelected) {
-        ctx.fillStyle = "rgba(59, 130, 246, 0.4)";
-      } else if (isHovered) {
-        ctx.fillStyle = "rgba(100, 116, 139, 0.3)";
-      } else {
-        ctx.fillStyle = "rgba(30, 41, 59, 0.6)";
-      }
-
-      ctx.fillRect(startX, y, buttonWidth, buttonHeight);
       this.setButtonRegion(option.key, startX, y, buttonWidth, buttonHeight);
 
-      ctx.strokeStyle = isSelected ? "#3b82f6" : isHovered ? "#64748b" : "#475569";
-      ctx.lineWidth = isSelected ? 3 : 2;
-      ctx.strokeRect(startX, y, buttonWidth, buttonHeight);
+      // Fondo
+      ctx.fillStyle = isSelected
+        ? "rgba(59, 130, 246, 0.25)"
+        : isHovered
+          ? "rgba(255, 255, 255, 0.05)"
+          : "rgba(15, 23, 42, 0.6)";
 
-      ctx.fillStyle = isSelected ? "#93c5fd" : "#cbd5e1";
-      ctx.font = isSelected ? "bold 14px Arial" : "14px Arial";
+      ctx.beginPath();
+      ctx.roundRect(startX, y, buttonWidth, buttonHeight, 10);
+      ctx.fill();
+
+      // Borde
+      ctx.strokeStyle = isSelected ? "#60a5fa" : "rgba(148, 163, 184, 0.2)";
+      ctx.lineWidth = isSelected ? 2 : 1;
+      ctx.stroke();
+
+      // Icono
+      if (option.icon) {
+        ctx.font = "20px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(option.icon, startX + buttonWidth / 2, y + 24);
+      }
+
+      // Etiqueta
+      ctx.fillStyle = isSelected ? "#bfdbfe" : "#94a3b8";
+      ctx.font = isSelected ? "bold 11px Arial" : "11px Arial";
       ctx.textAlign = "center";
-      ctx.fillText(option.label, startX + buttonWidth / 2, y + 17);
-
-      ctx.font = "11px Arial";
-      ctx.fillStyle = "#94a3b8";
-      ctx.fillText(`${option.value}x${option.value}`, startX + buttonWidth / 2, y + 32);
+      ctx.fillText(option.label, startX + buttonWidth / 2, y + 42);
 
       startX += buttonWidth + spacing;
     });
@@ -703,50 +683,7 @@ export class MainMenu {
     y: number,
     centerXOverride?: number
   ) {
-    const ctx = this.ctx;
-    const centerX = centerXOverride ?? this.canvas.width / 2;
-    const buttonWidth = this.useMobileLayout ? 96 : 110;
-    const buttonHeight = this.useMobileLayout ? 46 : 50;
-    const spacing = this.useMobileLayout ? 8 : 10;
-
-    const totalWidth = options.length * buttonWidth + (options.length - 1) * spacing;
-    let startX = centerX - totalWidth / 2;
-
-    options.forEach((option) => {
-      const isSelected = option.value === this.config.difficulty;
-      const isHovered = this.hoveredButton === option.key;
-
-      let color = "#64748b";
-      if (option.value === "easy") color = "#10b981";
-      if (option.value === "normal") color = "#f59e0b";
-      if (option.value === "hard") color = "#ef4444";
-
-      if (isSelected) {
-        ctx.fillStyle = `${color}40`;
-      } else if (isHovered) {
-        ctx.fillStyle = `${color}20`;
-      } else {
-        ctx.fillStyle = "rgba(30, 41, 59, 0.6)";
-      }
-
-      ctx.fillRect(startX, y, buttonWidth, buttonHeight);
-      this.setButtonRegion(option.key, startX, y, buttonWidth, buttonHeight);
-
-      ctx.strokeStyle = isSelected ? color : isHovered ? `${color}80` : "#475569";
-      ctx.lineWidth = isSelected ? 3 : 2;
-      ctx.strokeRect(startX, y, buttonWidth, buttonHeight);
-
-      ctx.fillStyle = isSelected ? color : "#cbd5e1";
-      ctx.font = isSelected ? "bold 14px Arial" : "14px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText(option.label, startX + buttonWidth / 2, y + 20);
-
-      ctx.font = "10px Arial";
-      ctx.fillStyle = "#94a3b8";
-      ctx.fillText(option.desc, startX + buttonWidth / 2, y + 36);
-
-      startX += buttonWidth + spacing;
-    });
+    // Deprecated, using generic renderOptionButtons now
   }
 
   setMobileMode(isMobile: boolean) {

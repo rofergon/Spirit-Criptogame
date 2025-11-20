@@ -1043,6 +1043,7 @@ export class Game {
     }
     this.hideTooltip();
     const primary = event.touches[0];
+    if (!primary) return;
     this.touchStart = { x: primary.clientX, y: primary.clientY };
     this.touchLast = { x: primary.clientX, y: primary.clientY };
     this.touchMoved = false;
@@ -1187,12 +1188,16 @@ export class Game {
   }
 
   private getPinchDistance(touches: TouchList) {
-    const [a, b] = [touches[0], touches[1]];
+    const a = touches[0];
+    const b = touches[1];
+    if (!a || !b) return 0;
     return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
   }
 
   private getPinchCenter(touches: TouchList) {
-    const [a, b] = [touches[0], touches[1]];
+    const a = touches[0];
+    const b = touches[1];
+    if (!a || !b) return { x: 0, y: 0 };
     return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
   }
 
