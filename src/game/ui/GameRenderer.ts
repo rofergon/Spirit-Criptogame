@@ -34,6 +34,8 @@ export class GameRenderer {
   private ctx: CanvasRenderingContext2D;
   private textures: Record<string, HTMLImageElement[]> = {};
   private hexFrame: HTMLImageElement | null = null;
+  private readonly cacheTag: string;
+  private terrainDetailCache = new WeakMap<WorldCell, Array<{ type: "rect" | "dot"; x: number; y: number; r?: number; w?: number; h?: number }>>();
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d");
@@ -41,18 +43,16 @@ export class GameRenderer {
       throw new Error("No se pudo obtener el contexto 2D.");
     }
     this.ctx = ctx;
+    this.cacheTag = this.getCacheTag();
     this.loadTextures();
   }
 
   private loadTextures() {
-    const cacheBuster = `?v=${Date.now()}`;
-
-
     // Terrenos con texturas simples (sin variantes múltiples)
     const simpleTerrains = ["snow", "tundra"];
     simpleTerrains.forEach((terrain) => {
       const img = new Image();
-      img.src = `/assets/textures/${terrain}.png${cacheBuster}`;
+      img.src = `/assets/textures/${terrain}.png${this.cacheTag}`;
       img.onerror = () => console.error(`Failed to load texture: ${img.src}`);
       img.onload = () => console.log(`Loaded texture: ${terrain}`);
       this.textures[terrain] = [img];
@@ -73,7 +73,7 @@ export class GameRenderer {
       this.textures[name] = [];
       for (let i = 1; i <= 4; i++) {
         const img = new Image();
-        img.src = `/assets/${folder}/${prefix}_${i}.png${cacheBuster}`;
+        img.src = `/assets/${folder}/${prefix}_${i}.png${this.cacheTag}`;
         img.onerror = () => console.error(`Failed to load texture variant: ${img.src}`);
         img.onload = () => console.log(`Loaded ${name} variant ${i}`);
         this.textures[name].push(img);
@@ -82,10 +82,16 @@ export class GameRenderer {
 
     // Load hexagonal frame
     const frameImg = new Image();
-    frameImg.src = `/assets/hex_frames_textures/hex_frame_stone.png${cacheBuster}`;
+    frameImg.src = `/assets/hex_frames_textures/hex_frame_stone.png${this.cacheTag}`;
     frameImg.onerror = () => console.error(`Failed to load hex frame: ${frameImg.src}`);
     frameImg.onload = () => console.log(`Loaded hex frame`);
     this.hexFrame = frameImg;
+  }
+
+  private getCacheTag() {
+    const meta = import.meta as unknown as { env?: Record<string, string> };
+    const version = meta.env?.VITE_ASSET_VERSION;
+    return version ? `?v=${version}` : "";
   }
 
   getCanvas() {
@@ -107,7 +113,7 @@ export class GameRenderer {
       row.forEach((cell) => {
         const center = getHexCenter(cell.x, cell.y, hex, offsetX, offsetY);
         this.drawTerrainBase(center, hex, cell);
-        this.drawTerrainDetail(center, hex, cell.terrain);
+        this.drawTerrainDetail(center, hex, cell);
         this.drawHexFrame(center, hex);
 
         if (cell.priority !== "none") {
@@ -243,32 +249,50 @@ export class GameRenderer {
   }
 
 
-  private drawTerrainDetail(center: Vec2, hex: HexGeometry, terrain: WorldCell["terrain"]) {
+  private drawTerrainDetail(center: Vec2, hex: HexGeometry, cell: WorldCell) {
+    if (hex.size < 9) return; // Skip tiny hexes to save work at low zoom
+
+    const terrain = cell.terrain;
     const ctx = this.ctx;
     ctx.save();
     ctx.globalAlpha = 0.1;
     ctx.fillStyle = "#000";
 
-    // Simple noise/pattern based on terrain
-    const seed = (center.x * 12.9898 + center.y * 78.233) * 43758.5453;
+    const shapes = this.getTerrainDetailShapes(cell, terrain);
+    shapes.forEach((shape) => {
+      if (shape.type === "rect") {
+        ctx.fillRect(center.x + shape.x, center.y + shape.y, shape.w ?? 2, shape.h ?? 4);
+      } else {
+        ctx.beginPath();
+        ctx.arc(center.x + shape.x, center.y + shape.y, shape.r ?? 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+
+    ctx.restore();
+  }
+
+  private getTerrainDetailShapes(cell: WorldCell, terrain: WorldCell["terrain"]) {
+    const cached = this.terrainDetailCache.get(cell);
+    if (cached) return cached;
+
+    const shapes: Array<{ type: "rect" | "dot"; x: number; y: number; r?: number; w?: number; h?: number }> = [];
+    const seed = (cell.x * 12.9898 + cell.y * 78.233) * 43758.5453;
 
     if (terrain === "grassland" || terrain === "forest") {
-      // Draw some grass blades
       for (let i = 0; i < 3; i++) {
         const offset = (seed + i) % 10;
-        ctx.fillRect(center.x + (offset - 5) * 2, center.y + (offset - 5) * 2, 2, 4);
+        shapes.push({ type: "rect", x: (offset - 5) * 2, y: (offset - 5) * 2, w: 2, h: 4 });
       }
     } else if (terrain === "desert" || terrain === "beach") {
-      // Draw dots
       for (let i = 0; i < 5; i++) {
         const offset = (seed + i) % 10;
-        ctx.beginPath();
-        ctx.arc(center.x + (offset - 5) * 3, center.y + (offset - 5) * 3, 1, 0, Math.PI * 2);
-        ctx.fill();
+        shapes.push({ type: "dot", x: (offset - 5) * 3, y: (offset - 5) * 3, r: 1 });
       }
     }
 
-    ctx.restore();
+    this.terrainDetailCache.set(cell, shapes);
+    return shapes;
   }
 
   private drawHexFrame(center: Vec2, hex: HexGeometry) {
