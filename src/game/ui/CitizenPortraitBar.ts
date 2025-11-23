@@ -6,6 +6,7 @@ type CitizenPortraitBarOptions = {
 
 export class CitizenPortraitBarController {
     private container: HTMLDivElement | null = null;
+    private portraits = new Map<number, HTMLDivElement>();
 
     constructor(private options: CitizenPortraitBarOptions) {
         this.container = document.querySelector<HTMLDivElement>("#citizen-portrait-bar");
@@ -18,7 +19,8 @@ export class CitizenPortraitBarController {
         const aliveCitizens = citizens.filter((c) => c.state === "alive");
 
         if (aliveCitizens.length === 0) {
-            this.container.innerHTML = `<div class="portrait-bar-empty">No hay aldeanos vivos</div>`;
+            this.container.textContent = "No hay aldeanos vivos";
+            this.portraits.clear();
             return;
         }
 
@@ -34,30 +36,77 @@ export class CitizenPortraitBarController {
             return a.id - b.id;
         });
 
-        this.container.innerHTML = sorted
-            .map((citizen) => this.renderPortrait(citizen, citizen.id === selectedCitizenId))
-            .join("");
+        const nextIds = new Set<number>();
+        const fragment = document.createDocumentFragment();
+
+        sorted.forEach((citizen) => {
+            nextIds.add(citizen.id);
+            const node = this.portraits.get(citizen.id) ?? this.createPortrait(citizen);
+            this.updatePortrait(node, citizen, citizen.id === selectedCitizenId);
+            fragment.appendChild(node);
+        });
+
+        // Remove stale portraits
+        Array.from(this.portraits.keys()).forEach((id) => {
+            if (!nextIds.has(id)) {
+                this.portraits.delete(id);
+            }
+        });
+
+        // Reorder without recreating nodes
+        this.container.replaceChildren(fragment);
     }
 
-    private renderPortrait(citizen: Citizen, isSelected: boolean): string {
+    private createPortrait(citizen: Citizen): HTMLDivElement {
+        const portrait = document.createElement("div");
+        portrait.className = "citizen-portrait";
+        portrait.dataset.citizenId = String(citizen.id);
+
+        const icon = document.createElement("div");
+        icon.className = "portrait-icon";
+        portrait.appendChild(icon);
+
+        const healthBar = document.createElement("div");
+        healthBar.className = "portrait-health-bar";
+        const healthFill = document.createElement("div");
+        healthFill.className = "health-bar-fill";
+        healthBar.appendChild(healthFill);
+        portrait.appendChild(healthBar);
+
+        const idLabel = document.createElement("div");
+        idLabel.className = "portrait-id";
+        portrait.appendChild(idLabel);
+
+        this.portraits.set(citizen.id, portrait);
+        return portrait;
+    }
+
+    private updatePortrait(portrait: HTMLDivElement, citizen: Citizen, isSelected: boolean) {
+        portrait.dataset.citizenId = String(citizen.id);
         const roleIcon = this.getRoleIcon(citizen.role);
         const healthPercent = Math.max(0, Math.min(100, Math.floor(citizen.health)));
         const healthColor = this.getHealthColor(healthPercent);
         const tribeIndicator = citizen.tribeId === 1 ? "player-tribe" : "other-tribe";
         const blessedClass = citizen.blessedUntil && citizen.age < citizen.blessedUntil ? "blessed" : "";
-        const selectedClass = isSelected ? "selected" : "";
 
-        return `
-      <div class="citizen-portrait ${tribeIndicator} ${blessedClass} ${selectedClass}" data-citizen-id="${citizen.id}">
-        <div class="portrait-icon" title="Aldeano #${citizen.id} - ${this.getRoleLabel(citizen.role)}">
-          ${roleIcon}
-        </div>
-        <div class="portrait-health-bar">
-          <div class="health-bar-fill" style="width: ${healthPercent}%; background-color: ${healthColor};"></div>
-        </div>
-        <div class="portrait-id">#${citizen.id}</div>
-      </div>
-    `;
+        portrait.className = `citizen-portrait ${tribeIndicator} ${blessedClass} ${isSelected ? "selected" : ""}`.trim();
+
+        const icon = portrait.querySelector<HTMLDivElement>(".portrait-icon");
+        if (icon) {
+            icon.textContent = roleIcon;
+            icon.title = `Aldeano #${citizen.id} - ${this.getRoleLabel(citizen.role)}`;
+        }
+
+        const healthFill = portrait.querySelector<HTMLDivElement>(".health-bar-fill");
+        if (healthFill) {
+            healthFill.style.width = `${healthPercent}%`;
+            healthFill.style.backgroundColor = healthColor;
+        }
+
+        const idLabel = portrait.querySelector<HTMLDivElement>(".portrait-id");
+        if (idLabel) {
+            idLabel.textContent = `#${citizen.id}`;
+        }
     }
 
     private getRoleIcon(role: Citizen["role"]): string {
