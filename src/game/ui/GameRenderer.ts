@@ -32,7 +32,7 @@ export type RenderState = {
 
 export class GameRenderer {
   private ctx: CanvasRenderingContext2D;
-  private textures: Record<string, HTMLImageElement> = {};
+  private textures: Record<string, HTMLImageElement[]> = {};
   private hexFrame: HTMLImageElement | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -45,27 +45,45 @@ export class GameRenderer {
   }
 
   private loadTextures() {
-    const terrains = [
-      "beach",
-      "desert",
-      "forest",
-      "grassland",
-      "mountain",
-      "ocean",
-      "river",
-      "snow",
-      "tundra",
+    const cacheBuster = `?v=${Date.now()}`;
+    
+
+    // Terrenos con texturas simples (sin variantes múltiples)
+    const simpleTerrains = ["river", "snow", "tundra"];
+    simpleTerrains.forEach((terrain) => {
+      const img = new Image();
+      img.src = `/assets/textures/${terrain}.png${cacheBuster}`;
+      img.onerror = () => console.error(`Failed to load texture: ${img.src}`);
+      img.onload = () => console.log(`Loaded texture: ${terrain}`);
+      this.textures[terrain] = [img];
+    });
+
+    // Terrenos con múltiples variantes (incluyendo ocean)
+    const variantTerrains = [
+      { name: "grassland", folder: "extracted_grass_hexes", prefix: "grass_hex_c26606bc-1358-490f-9219-970fc0a664c2 (1)" },
+      { name: "forest", folder: "extracted_forest_hexes", prefix: "forest_hex_Forest" },
+      { name: "mountain", folder: "extracted_mountain_hexes", prefix: "mountain_hex_Rock_Mountains" },
+      { name: "desert", folder: "extracted_desert_hexes", prefix: "desert_hex_Desert" },
+      { name: "beach", folder: "extracted_beach_hexes", prefix: "beach_hex_Beach_Beach_variants" },
+      { name: "ocean", folder: "extracted_ocean_hexes", prefix: "ocean_hex_Ocean_Ocean_variants" },
     ];
 
-    terrains.forEach((terrain) => {
-      const img = new Image();
-      img.src = `/assets/textures/${terrain}.png`;
-      this.textures[terrain] = img;
+    variantTerrains.forEach(({ name, folder, prefix }) => {
+      this.textures[name] = [];
+      for (let i = 1; i <= 4; i++) {
+        const img = new Image();
+        img.src = `/assets/${folder}/${prefix}_${i}.png${cacheBuster}`;
+        img.onerror = () => console.error(`Failed to load texture variant: ${img.src}`);
+        img.onload = () => console.log(`Loaded ${name} variant ${i}`);
+        this.textures[name].push(img);
+      }
     });
 
     // Load hexagonal frame
     const frameImg = new Image();
-    frameImg.src = `/assets/hex_frames_textures/hex_frame_stone.png`;
+    frameImg.src = `/assets/hex_frames_textures/hex_frame_stone.png${cacheBuster}`;
+    frameImg.onerror = () => console.error(`Failed to load hex frame: ${frameImg.src}`);
+    frameImg.onload = () => console.log(`Loaded hex frame`);
     this.hexFrame = frameImg;
   }
 
@@ -142,27 +160,34 @@ export class GameRenderer {
     traceHexPath(ctx, center, hex);
 
     const terrain = cell.terrain;
-    const texture = this.textures[terrain];
+    const textureVariants = this.textures[terrain];
 
-    if (texture && texture.complete) {
-      ctx.save();
-      ctx.clip();
+    if (textureVariants && textureVariants.length > 0) {
+      // Seleccionar una variante basada en las coordenadas de la celda
+      const hash = (cell.x * 73856093 + cell.y * 19349663) >>> 0;
+      const variantIndex = hash % textureVariants.length;
+      const texture = textureVariants[variantIndex];
 
-      // Draw the image to cover the hexagon
-      // Use size * 2 for both dimensions to ensure proper coverage
-      // This matches the hexagon's actual bounding circle
-      const imgSize = hex.size * 2;
+      if (texture && texture.complete) {
+        ctx.save();
+        ctx.clip();
 
-      ctx.drawImage(
-        texture,
-        center.x - imgSize / 2,
-        center.y - imgSize / 2,
-        imgSize,
-        imgSize
-      );
+        // Draw the image to cover the hexagon
+        // Use size * 2 for both dimensions to ensure proper coverage
+        // This matches the hexagon's actual bounding circle
+        const imgSize = hex.size * 2;
 
-      ctx.restore();
-      return;
+        ctx.drawImage(
+          texture,
+          center.x - imgSize / 2,
+          center.y - imgSize / 2,
+          imgSize,
+          imgSize
+        );
+
+        ctx.restore();
+        return;
+      }
     }
 
     // Fallback to solid color
