@@ -4,6 +4,7 @@ export class CitizenControlPanelController {
     private container: HTMLDivElement | null = null;
     private currentCitizen: Citizen | null = null;
     private isVisible = false;
+    private lastRenderSignature: string | null = null;
 
     constructor(private options?: { onClose?: () => void }) {
         this.container = document.querySelector<HTMLDivElement>("#citizen-control-panel");
@@ -21,6 +22,7 @@ export class CitizenControlPanelController {
     hide() {
         this.isVisible = false;
         this.currentCitizen = null;
+        this.lastRenderSignature = null;
         if (this.container) {
             this.container.classList.add("hidden");
         }
@@ -35,6 +37,10 @@ export class CitizenControlPanelController {
 
     private render() {
         if (!this.container || !this.currentCitizen) return;
+
+        const signature = this.getCitizenSignature(this.currentCitizen);
+        if (signature === this.lastRenderSignature) return;
+        this.lastRenderSignature = signature;
 
         const c = this.currentCitizen;
         const roleIcon = this.getRoleIcon(c.role);
@@ -86,6 +92,24 @@ export class CitizenControlPanelController {
 
         // Re-attach close listener
         this.container.querySelector(".panel-close-btn")?.addEventListener("click", () => this.hide());
+    }
+
+    private getCitizenSignature(c: Citizen): string {
+        return [
+            c.id,
+            c.state,
+            c.role,
+            Math.floor(c.age),
+            Math.floor(c.health),
+            Math.floor(100 - c.hunger),
+            Math.floor(100 - c.fatigue),
+            Math.floor(c.morale),
+            Math.floor(c.carrying.food),
+            Math.floor(c.carrying.stone),
+            Math.floor(c.carrying.wood),
+            c.currentGoal ?? "",
+            c.debugLastAction ?? "",
+        ].join("|");
     }
 
     private renderStatBar(label: string, value: number, color: string, icon: string): string {
