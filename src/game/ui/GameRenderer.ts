@@ -160,8 +160,6 @@ export class GameRenderer {
     this.drawLegend();
   }
 
-  private patterns: Record<string, CanvasPattern> = {};
-
   private drawTerrainBase(center: Vec2, hex: HexGeometry, cell: WorldCell) {
     const ctx = this.ctx;
     traceHexPath(ctx, center, hex);
@@ -583,17 +581,5 @@ export class GameRenderer {
       ctx.fillText(`${item.icon} ${item.label}`, x + 8, itemY);
       itemY += 15;
     });
-  }
-
-  private getRoleLabel(role: Citizen["role"]) {
-    const labels: Record<Citizen["role"], string> = {
-      worker: "Trabajador",
-      farmer: "Granjero",
-      warrior: "Guerrero",
-      scout: "Explorador",
-      child: "Niño",
-      elder: "Anciano",
-    };
-    return labels[role];
   }
 }

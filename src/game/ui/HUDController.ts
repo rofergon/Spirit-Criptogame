@@ -10,7 +10,6 @@ export type HUDSnapshot = {
 };
 
 export class HUDController {
-  private hudScore = document.querySelector<HTMLSpanElement>("#score");
   private hudPopulation = document.querySelector<HTMLSpanElement>("#energy");
   private hudClimate = document.querySelector<HTMLSpanElement>("#time");
   private hudFood = document.querySelector<HTMLSpanElement>("#food");

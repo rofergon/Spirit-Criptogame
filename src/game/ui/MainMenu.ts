@@ -644,7 +644,6 @@ export class MainMenu {
     const centerX = centerXOverride ?? this.canvas.width / 2;
 
     // Botones más compactos
-    // Botones más compactos
     // Calculate button width based on available space if needed
     const maxButtonWidth = this.useMobileLayout ? (this.canvas.width - 40) / options.length - 10 : 100;
     const buttonWidth = Math.min(this.useMobileLayout ? 70 : 100, maxButtonWidth);
@@ -691,14 +690,6 @@ export class MainMenu {
 
       startX += buttonWidth + spacing;
     });
-  }
-
-  private renderDifficultyButtons(
-    options: Array<{ label: string; value: "easy" | "normal" | "hard"; key: MenuButtonKey; desc: string }>,
-    y: number,
-    centerXOverride?: number
-  ) {
-    // Deprecated, using generic renderOptionButtons now
   }
 
   setMobileMode(isMobile: boolean) {
