@@ -150,7 +150,7 @@ export class GameRenderer {
     });
 
     this.drawNotifications(state.notifications);
-    this.drawContextPanel(state.selectedCitizen);
+
     this.drawLegend();
   }
 
@@ -522,66 +522,7 @@ export class GameRenderer {
     ctx.textAlign = "left";
   }
 
-  private drawContextPanel(selectedCitizen: Citizen | null) {
-    if (!selectedCitizen || selectedCitizen.state === "dead") return;
 
-    const ctx = this.ctx;
-    const c = selectedCitizen;
-    const panelWidth = 280;
-    const panelHeight = 200;
-    const x = this.canvas.width - panelWidth - 16;
-    const y = 16;
-
-    ctx.fillStyle = "rgba(15, 23, 42, 0.95)";
-    ctx.fillRect(x, y, panelWidth, panelHeight);
-
-    ctx.strokeStyle = "rgba(233, 204, 152, 0.4)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, panelWidth, panelHeight);
-
-    ctx.fillStyle = "#f0e7dc";
-    ctx.font = "bold 14px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText(`CIUDADANO #${c.id} - ${this.getRoleLabel(c.role)}`, x + 12, y + 20);
-
-    let lineY = y + 45;
-    const lineHeight = 28;
-
-    this.drawStatBar("❤️ Salud", c.health, x + 12, lineY, panelWidth - 24, "#ef4444");
-    lineY += lineHeight;
-    this.drawStatBar("🍖 Hambre", 100 - c.hunger, x + 12, lineY, panelWidth - 24, "#f59e0b");
-    lineY += lineHeight;
-    this.drawStatBar("😊 Moral", c.morale, x + 12, lineY, panelWidth - 24, "#3b82f6");
-    lineY += lineHeight;
-    this.drawStatBar("💤 Fatiga", 100 - c.fatigue, x + 12, lineY, panelWidth - 24, "#8b5cf6");
-    lineY += lineHeight;
-
-    ctx.font = "11px Arial";
-    ctx.fillStyle = "#94a3b8";
-    ctx.fillText(`📍 Pos: (${c.x}, ${c.y})  🎂 Edad: ${Math.floor(c.age)}`, x + 12, lineY);
-    lineY += 16;
-    ctx.fillText(`📦 Carga: ${c.carrying.food}🌾 ${c.carrying.stone}🪨 ${c.carrying.wood}🌲`, x + 12, lineY);
-  }
-
-  private drawStatBar(label: string, value: number, x: number, y: number, width: number, color: string) {
-    const ctx = this.ctx;
-    ctx.font = "11px Arial";
-    ctx.fillStyle = "#cbd5e1";
-    ctx.textAlign = "left";
-    ctx.fillText(label, x, y - 4);
-
-    ctx.fillStyle = "rgba(30, 41, 59, 0.8)";
-    ctx.fillRect(x, y + 2, width, 10);
-
-    const percent = clamp(value, 0, 100) / 100;
-    ctx.fillStyle = color;
-    ctx.fillRect(x, y + 2, width * percent, 10);
-
-    ctx.font = "9px Arial";
-    ctx.fillStyle = "#ffffff";
-    ctx.textAlign = "right";
-    ctx.fillText(`${Math.floor(value)}%`, x + width - 4, y + 10);
-  }
 
   private drawLegend() {
     const ctx = this.ctx;
