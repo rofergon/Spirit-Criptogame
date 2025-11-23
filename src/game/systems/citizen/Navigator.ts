@@ -61,6 +61,8 @@ export class Navigator {
     }
 
     if (!this.world.isWalkable(nextStep.x, nextStep.y)) {
+      this.clearCitizenPath(citizen);
+      this.markTemporarilyUnreachable(citizen, target, cacheKey);
       return false;
     }
 

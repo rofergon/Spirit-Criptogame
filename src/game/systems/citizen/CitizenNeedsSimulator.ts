@@ -32,7 +32,11 @@ export class CitizenNeedsSimulator {
 
     if (citizen.hunger > 80) this.hooks.inflictDamage(citizen, 4, "hambre");
     if (citizen.fatigue > 80) this.hooks.inflictDamage(citizen, 2, "agotamiento");
-    if (citizen.morale < 20) citizen.currentGoal = "passive";
+    if (citizen.morale < 20) {
+      citizen.currentGoal = "passive";
+    } else if (citizen.currentGoal === "passive" && citizen.morale > 35) {
+      delete citizen.currentGoal; // recover once morale stabilizes to avoid permanent lock-in
+    }
 
     if (citizen.age > 70 && this.rng() < tickHours * 0.02) this.hooks.inflictDamage(citizen, 5, "vejez");
 

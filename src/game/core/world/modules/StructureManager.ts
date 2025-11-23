@@ -60,6 +60,7 @@ export class StructureManager {
     public placeInitialStructures(villageCenter: Vec2, isWalkable: (x: number, y: number) => boolean) {
         const offsets = [
             { type: "granary" as StructureType, dx: 1, dy: 0 },
+            { type: "warehouse" as StructureType, dx: -1, dy: 0 },
             { type: "house" as StructureType, dx: -2, dy: 1 },
             { type: "house" as StructureType, dx: 2, dy: 1 },
             { type: "temple" as StructureType, dx: 0, dy: -2 },

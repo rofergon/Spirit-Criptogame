@@ -7,6 +7,9 @@ import { Navigator } from "./Navigator";
 import type { BehaviorDecision } from "./CitizenBehaviorDirector";
 import { ResourceCollectionEngine } from "../resource/ResourceCollectionEngine";
 
+type BusyAction = Extract<CitizenAction["type"], "gather" | "construct" | "tendCrops" | "attack" | "mate">;
+const BUSY_ACTIONS: readonly BusyAction[] = ["gather", "construct", "tendCrops", "attack", "mate"];
+
 interface ExecutionContext {
   debugLogging: boolean;
   elapsedHours: number;
@@ -33,6 +36,7 @@ export class CitizenActionExecutor {
   ) {}
 
   execute(citizen: Citizen, decision: BehaviorDecision, tickHours: number, context: ExecutionContext) {
+    this.updateActiveTask(citizen, decision.action);
     this.logCitizenAction(citizen, decision.action, decision.source, context);
     this.applyCitizenAction(citizen, decision.action, tickHours);
   }
@@ -272,6 +276,17 @@ export class CitizenActionExecutor {
         return "unknown";
     }
   }
+
+  private updateActiveTask(citizen: Citizen, action: CitizenAction) {
+    if (isBusyAction(action.type)) {
+      citizen.activeTask = action.type;
+      return;
+    }
+    delete citizen.activeTask;
+  }
 }
 
 const formatCoords = (x: number, y: number) => `(${x},${y})`;
+
+const isBusyAction = (actionType: CitizenAction["type"]): actionType is BusyAction =>
+  BUSY_ACTIONS.includes(actionType as BusyAction);

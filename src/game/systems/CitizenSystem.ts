@@ -279,12 +279,19 @@ export class CitizenSystem {
   }
 
   private isCitizenBusy(citizen: Citizen): boolean {
+    // Active tasks (set during action execution) signal a long-running job
+    if (citizen.activeTask) return true;
+
     // Check if citizen has an active goal that indicates they're performing a task
     if (!citizen.currentGoal) return false;
 
     // Normalize once per call and compare against a set to avoid repeated lowercase conversions
     const goal = citizen.currentGoal.toLowerCase();
-    return BUSY_GOALS.has(goal);
+    if (BUSY_GOALS.has(goal)) {
+      return true;
+    }
+
+    return false;
   }
 
   applyPendingRoleChanges() {

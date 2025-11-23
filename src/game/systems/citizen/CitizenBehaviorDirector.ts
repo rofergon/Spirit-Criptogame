@@ -298,6 +298,7 @@ const workerAI: CitizenAI = (citizen, view) => {
     const needsStone = stoneDeficit > 0;
     const needsWood = woodDeficit > 0;
     const materialsComplete = !needsStone && !needsWood;
+    const storagePos = view.villageCenter ?? activeDirector?.world?.villageCenter;
 
     // Si los materiales están completos, trabajar en la construcción
     if (materialsComplete) {
@@ -311,13 +312,13 @@ const workerAI: CitizenAI = (citizen, view) => {
     }
 
     // Si faltan materiales, ir al almacén a recogerlos
-    if (view.villageCenter) {
+    if (storagePos) {
       const hasStone = citizen.carrying.stone > 0;
       const hasWood = citizen.carrying.wood > 0;
-      const atVillage = citizen.x === view.villageCenter.x && citizen.y === view.villageCenter.y;
+      const atStorage = citizen.x === storagePos.x && citizen.y === storagePos.y;
 
       // Si está en el almacén, recoger materiales
-      if (atVillage && activeDirector?.world) {
+      if (atStorage && activeDirector?.world) {
         const world = activeDirector.world;
         if (needsStone && !hasStone && world.stockpile.stone > 0) {
           const taken = world.consume("stone", Math.min(3, stoneDeficit));
@@ -351,7 +352,7 @@ const workerAI: CitizenAI = (citizen, view) => {
       const canPickup = (needsStone && stockpileStone > 0) || (needsWood && stockpileWood > 0);
 
       if (canPickup) {
-        return { type: "move", x: view.villageCenter.x, y: view.villageCenter.y };
+        return { type: "move", x: storagePos.x, y: storagePos.y };
       }
 
       // Si el almacén está vacío, recolectar manualmente

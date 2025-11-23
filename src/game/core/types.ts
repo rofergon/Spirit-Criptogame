@@ -115,6 +115,7 @@ export interface Citizen {
   unreachableCacheKey?: string;
   unreachableCooldown?: number;
   pendingRoleChange?: Role;
+  activeTask?: "gather" | "construct" | "tendCrops" | "attack" | "mate";
 }
 
 export interface WorldView {
