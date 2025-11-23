@@ -14,6 +14,60 @@ import { createHexGeometry, getHexCenter, traceHexPath } from "./hexGrid";
 import type { HexGeometry } from "./hexGrid";
 import { drawTree, drawStone, drawFood, drawWaterSpring, drawStructure, drawCitizenSprite } from "./RenderHelpers";
 
+type TextureResources = {
+  textures: Record<string, HTMLImageElement[]>;
+  hexFrame: HTMLImageElement | null;
+  cacheTag: string;
+};
+
+const sharedTextureState: { resources: TextureResources | null } = {
+  resources: null,
+};
+
+const loadImage = (src: string, label: string) => {
+  const img = new Image();
+  img.src = src;
+  img.onerror = () => console.error(`Failed to load texture: ${label} -> ${src}`);
+  return img;
+};
+
+const ensureSharedTextures = (cacheTag: string): TextureResources => {
+  if (sharedTextureState.resources && sharedTextureState.resources.cacheTag === cacheTag) {
+    return sharedTextureState.resources;
+  }
+
+  const textures: Record<string, HTMLImageElement[]> = {};
+
+  // Terrenos con texturas simples (sin variantes múltiples)
+  ["snow", "tundra"].forEach((terrain) => {
+    textures[terrain] = [loadImage(`/assets/textures/${terrain}.png${cacheTag}`, terrain)];
+  });
+
+  // Terrenos con múltiples variantes (incluyendo ocean)
+  const variantTerrains = [
+    { name: "grassland", folder: "extracted_grass_hexes", prefix: "grass_hex_c26606bc-1358-490f-9219-970fc0a664c2 (1)" },
+    { name: "forest", folder: "extracted_forest_hexes", prefix: "forest_hex_Forest" },
+    { name: "mountain", folder: "extracted_mountain_hexes", prefix: "mountain_hex_Rock_Mountains" },
+    { name: "desert", folder: "extracted_desert_hexes", prefix: "desert_hex_Desert" },
+    { name: "beach", folder: "extracted_beach_hexes", prefix: "beach_hex_Beach_Beach_variants" },
+    { name: "ocean", folder: "extracted_ocean_hexes", prefix: "ocean_hex_Ocean_Ocean_variants" },
+    { name: "river", folder: "extracted_river_hexes", prefix: "river_hex_Rivers_Rivers2" },
+  ];
+
+  variantTerrains.forEach(({ name, folder, prefix }) => {
+    textures[name] = [];
+    for (let i = 1; i <= 4; i += 1) {
+      textures[name].push(loadImage(`/assets/${folder}/${prefix}_${i}.png${cacheTag}`, `${name}-${i}`));
+    }
+  });
+
+  const hexFrame = loadImage(`/assets/hex_frames_textures/hex_frame_stone.png${cacheTag}`, "hex-frame");
+
+  const resources: TextureResources = { textures, hexFrame, cacheTag };
+  sharedTextureState.resources = resources;
+  return resources;
+};
+
 export type ViewMetrics = {
   cellSize: number;
   offsetX: number;
@@ -44,48 +98,9 @@ export class GameRenderer {
     }
     this.ctx = ctx;
     this.cacheTag = this.getCacheTag();
-    this.loadTextures();
-  }
-
-  private loadTextures() {
-    // Terrenos con texturas simples (sin variantes múltiples)
-    const simpleTerrains = ["snow", "tundra"];
-    simpleTerrains.forEach((terrain) => {
-      const img = new Image();
-      img.src = `/assets/textures/${terrain}.png${this.cacheTag}`;
-      img.onerror = () => console.error(`Failed to load texture: ${img.src}`);
-      img.onload = () => console.log(`Loaded texture: ${terrain}`);
-      this.textures[terrain] = [img];
-    });
-
-    // Terrenos con múltiples variantes (incluyendo ocean)
-    const variantTerrains = [
-      { name: "grassland", folder: "extracted_grass_hexes", prefix: "grass_hex_c26606bc-1358-490f-9219-970fc0a664c2 (1)" },
-      { name: "forest", folder: "extracted_forest_hexes", prefix: "forest_hex_Forest" },
-      { name: "mountain", folder: "extracted_mountain_hexes", prefix: "mountain_hex_Rock_Mountains" },
-      { name: "desert", folder: "extracted_desert_hexes", prefix: "desert_hex_Desert" },
-      { name: "beach", folder: "extracted_beach_hexes", prefix: "beach_hex_Beach_Beach_variants" },
-      { name: "ocean", folder: "extracted_ocean_hexes", prefix: "ocean_hex_Ocean_Ocean_variants" },
-      { name: "river", folder: "extracted_river_hexes", prefix: "river_hex_Rivers_Rivers2" },
-    ];
-
-    variantTerrains.forEach(({ name, folder, prefix }) => {
-      this.textures[name] = [];
-      for (let i = 1; i <= 4; i++) {
-        const img = new Image();
-        img.src = `/assets/${folder}/${prefix}_${i}.png${this.cacheTag}`;
-        img.onerror = () => console.error(`Failed to load texture variant: ${img.src}`);
-        img.onload = () => console.log(`Loaded ${name} variant ${i}`);
-        this.textures[name].push(img);
-      }
-    });
-
-    // Load hexagonal frame
-    const frameImg = new Image();
-    frameImg.src = `/assets/hex_frames_textures/hex_frame_stone.png${this.cacheTag}`;
-    frameImg.onerror = () => console.error(`Failed to load hex frame: ${frameImg.src}`);
-    frameImg.onload = () => console.log(`Loaded hex frame`);
-    this.hexFrame = frameImg;
+    const shared = ensureSharedTextures(this.cacheTag);
+    this.textures = shared.textures;
+    this.hexFrame = shared.hexFrame;
   }
 
   private getCacheTag() {
@@ -102,6 +117,9 @@ export class GameRenderer {
     const { ctx } = this;
     const { cellSize, offsetX, offsetY } = state.view;
     const hex = createHexGeometry(cellSize);
+    const canvasWidth = this.canvas.width;
+    const canvasHeight = this.canvas.height;
+    const visibilityPadding = Math.max(4, cellSize * 0.5); // small buffer to avoid popping at edges
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -112,6 +130,19 @@ export class GameRenderer {
     state.world.cells.forEach((row) =>
       row.forEach((cell) => {
         const center = getHexCenter(cell.x, cell.y, hex, offsetX, offsetY);
+
+        // Skip cells that fall completely outside the viewport
+        const halfWidth = hex.halfWidth + visibilityPadding;
+        const halfHeight = hex.size + visibilityPadding;
+        if (
+          center.x + halfWidth < 0 ||
+          center.x - halfWidth > canvasWidth ||
+          center.y + halfHeight < 0 ||
+          center.y - halfHeight > canvasHeight
+        ) {
+          return;
+        }
+
         this.drawTerrainBase(center, hex, cell);
         this.drawTerrainDetail(center, hex, cell);
         this.drawHexFrame(center, hex);
