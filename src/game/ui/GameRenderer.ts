@@ -63,6 +63,12 @@ const ensureSharedTextures = (cacheTag: string): TextureResources => {
 
   const hexFrame = loadImage(`/assets/hex_frames_textures/hex_frame_stone.png${cacheTag}`, "hex-frame");
 
+  // Load structure icons
+  textures["structure_campfire"] = [loadImage(`/assets/extracted_icons/bonfire.png${cacheTag}`, "structure_campfire")];
+  textures["structure_house"] = [loadImage(`/assets/extracted_icons/house.png${cacheTag}`, "structure_house")];
+  textures["structure_warehouse"] = [loadImage(`/assets/extracted_icons/warehouse.png${cacheTag}`, "structure_warehouse")];
+  textures["structure_granary"] = [loadImage(`/assets/extracted_icons/barn.png${cacheTag}`, "structure_granary")];
+
   const resources: TextureResources = { textures, hexFrame, cacheTag };
   sharedTextureState.resources = resources;
   return resources;
@@ -440,8 +446,32 @@ export class GameRenderer {
     if (stage > 1) drawFood(ctx, center.x + size * 0.2, center.y - size * 0.1, size * 0.8);
     if (stage > 2) drawFood(ctx, center.x, center.y + size * 0.2, size * 0.8);
   }
-
   private drawStructure(type: StructureType, center: Vec2, cellSize: number) {
+    // Check for specialized texture
+    const textureKey = `structure_${type}`;
+    const textures = this.textures[textureKey];
+    if (textures && textures.length > 0) {
+      const texture = textures[0];
+      if (texture && texture.complete) {
+        const ctx = this.ctx;
+        // Adjust size to fit well within the hex
+        // Adjust size to fit well within the hex
+        // Standard: Reduced by 20% + 5% -> 1.37
+        // Campfire: Reduced by additional 10% -> 1.23
+        const scale = type === "campfire" ? 1.23 : 1.37;
+        const size = cellSize * scale;
+
+        ctx.drawImage(
+          texture,
+          center.x - size / 2,
+          center.y - size / 2,
+          size,
+          size
+        );
+        return;
+      }
+    }
+
     drawStructure(this.ctx, type, center.x, center.y, cellSize);
   }
 
