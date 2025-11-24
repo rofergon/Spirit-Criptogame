@@ -30,6 +30,11 @@ export class CitizenNeedsSimulator {
     citizen.fatigue = clamp(citizen.fatigue + 0.8 * tickHours, 0, 100);
     citizen.morale = clamp(citizen.morale - 0.2 * tickHours, 0, 100);
 
+    // Eat before resolving hunger damage to avoid instant death when food is available
+    if (citizen.hunger > 70) {
+      this.hooks.tryEatFromStockpile(citizen);
+    }
+
     if (citizen.hunger > 80) this.hooks.inflictDamage(citizen, 4, "hambre");
     if (citizen.fatigue > 80) this.hooks.inflictDamage(citizen, 2, "agotamiento");
     if (citizen.morale < 20) {
@@ -42,10 +47,6 @@ export class CitizenNeedsSimulator {
 
     if (citizen.health <= 0) {
       return { died: true };
-    }
-
-    if (citizen.hunger > 70) {
-      this.hooks.tryEatFromStockpile(citizen);
     }
 
     return { died: false };
