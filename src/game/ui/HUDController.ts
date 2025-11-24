@@ -198,7 +198,7 @@ export class HUDController {
     // Importar dinámicamente para evitar errores en build
     try {
       const walletConfig = await import("../wallet/walletConfig");
-      
+
       if (!walletConfig.isOneWalletInstalled()) {
         this.showNotification(
           "OneWallet no está instalada. Por favor instálala para conectar con OneChain.",
@@ -221,7 +221,7 @@ export class HUDController {
       } else {
         // Conectar
         const result = await walletConfig.connectOneWallet();
-        
+
         if (result.success && result.account) {
           this.updateWalletButton(iconEl, textEl);
           this.showNotification(
@@ -248,7 +248,7 @@ export class HUDController {
   ) {
     try {
       const walletConfig = await import("../wallet/walletConfig");
-      
+
       if (walletConfig.isWalletConnected()) {
         const accountInfo = await walletConfig.getCurrentAccountInfo();
         if (iconEl) iconEl.textContent = "✅";
