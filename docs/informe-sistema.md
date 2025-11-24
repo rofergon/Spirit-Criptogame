@@ -1,43 +1,43 @@
-# Informe de bucle, mundo y aldeanos
+# Game loop, world, and villagers report
 
-## Bucle del juego
-- El bucle principal vive en `src/game/game.ts:844`. Arranca con `requestAnimationFrame`, detiene el delta cuando el menú está abierto y reanuda el conteo al cerrar el menú.
-- Cada cuadro convierte el tiempo real en horas de simulación: suma `deltaSeconds * HOURS_PER_SECOND * speedMultiplier` y procesa ticks de tamaño fijo `TICK_HOURS` (0.25 h, 1 hora en ~4 segundos reales). Dentro del `while` se llama a `runTick`.
-- `runTick` delega en `SimulationSession.runTick`, que aplica prioridades pendientes, actualiza eventos y clima, avanza el mundo (`WorldEngine.updateEnvironment`) y ejecuta el sistema de ciudadanos. Después sincroniza HUD, panel de ciudadanos y selección de estructuras.
-- El render se hace al final de cada cuadro con `GameRenderer.render`, recibiendo vista de cámara, entidades, notificaciones y cell hover/selección.
-- La entrada en tiempo real captura atajos de prioridad (`PRIORITY_KEYMAP`), modos de planificación (farm/mine/gather/build), ciclo de edificio, zoom y velocidad.
+## Game loop
+- The main loop lives in `src/game/game.ts:844`. It starts via `requestAnimationFrame`, freezes delta while the menu is open, and resumes counting when the menu closes.
+- Each frame converts real time into simulation hours: it adds `deltaSeconds * HOURS_PER_SECOND * speedMultiplier` and processes fixed-size ticks `TICK_HOURS` (0.25 h, ~4 real seconds per sim hour). Inside the `while` it calls `runTick`.
+- `runTick` delegates to `SimulationSession.runTick`, which applies pending priorities, updates events and climate, advances the world (`WorldEngine.updateEnvironment`), and runs the citizen system. Afterward it syncs the HUD, citizen panel, and structure selection.
+- Rendering happens at the end of each frame with `GameRenderer.render`, receiving camera view, entities, notifications, and hovered/selected cell.
+- Realtime input captures priority hotkeys (`PRIORITY_KEYMAP`), planning modes (farm/mine/gather/build), building cycle, zoom, and speed.
 
-## Generador de mundo
-- `WorldEngine` (`src/game/core/world/WorldEngine.ts`) construye el mapa. Usa `TerrainGenerator` para producir grillas de `WorldCell` con terreno, fertilidad, humedad y recursos iniciales; luego coloca el centro de aldea y estructuras iniciales vía `StructureManager`.
-- Navegación y movimiento usan `PathFinder`, con celdas caminables salvo océano/nieve. `addCitizen/moveCitizen` mantienen los inhabitantes por celda.
+## World generator
+- `WorldEngine` (`src/game/core/world/WorldEngine.ts`) builds the map. It uses `TerrainGenerator` to produce `WorldCell` grids with terrain, fertility, moisture, and initial resources; then it places the village center and initial structures via `StructureManager`.
+- Navigation and movement use `PathFinder`, with walkable cells except ocean/snow. `addCitizen/moveCitizen` keep per-cell inhabitants up to date.
 - `TerrainGenerator` (`src/game/core/world/modules/TerrainGenerator.ts`):
-  - Genera mapas de elevación y humedad con ruido multi-octava y warping.
-  - Forma regiones de biomas suavizadas, ríos desde picos, océanos coherentes y playas adyacentes al mar.
-  - Garantiza un núcleo montañoso (y reubica recursos ahí) y aplica sesgos de altura/humedad para resolver el bioma final por celda.
-- `ResourceGenerator` decide fertilidad por terreno y reparte recursos:
-  - Hotspots de comida renovable en praderas/bosques/pantanos según fertilidad; manantiales en ríos/océano.
-  - Clusters de madera renovable en bosques y clusters de piedra no renovable en montaña/tundra/desierto, asegurando al menos piedra en la zona montañosa.
-- Estado global de stockpile: comida/piedra/madera con capacidades base; `updateEnvironment` ajusta capacidades si hay granero/almacén, hace crecer recursos renovables y avanza cultivos por etapas según clima (sequía/lluvia).
-- Prioridades de celda (`setPriorityAt`) pintan farm/mine/gather/explore/defend. Al marcar farm inicia `farmTask = sow` y resetea progreso si se desmarca.
+  - Generates elevation and moisture maps with multi-octave noise and warping.
+  - Shapes smoothed biomes, rivers from peaks, coherent oceans, and beaches adjacent to the sea.
+  - Guarantees a mountain core (and relocates resources there) and applies height/moisture biases to resolve the final biome per cell.
+- `ResourceGenerator` decides fertility by terrain and distributes resources:
+  - Renewable food hotspots in grassland/forest/swamp based on fertility; springs in rivers/ocean.
+  - Renewable wood clusters in forests and non-renewable stone clusters in mountain/tundra/desert, ensuring stone in the mountain zone.
+- Global stockpile state: food/stone/wood with base capacities; `updateEnvironment` adjusts capacities if granary/warehouse exist, grows renewable resources, and advances crops by stages depending on climate (drought/rain).
+- Cell priorities (`setPriorityAt`) paint farm/mine/gather/explore/defend. Marking farm starts `farmTask = sow` and resets progress if unmarked.
 
-## Sistema de aldeanos, roles y recursos
-- `SimulationSession` (`src/game/core/SimulationSession.ts`) instancia `WorldEngine` y `CitizenSystem`, crea la tribu inicial según dificultad y propaga eventos/clima cada tick.
-- `CitizenSystem` (`src/game/systems/CitizenSystem.ts`) orquesta:
-  - `CitizenNeedsSimulator` aplica hambre/fatiga/moral y muertes.
-  - `CitizenBehaviorDirector` decide acciones por rol/meta, priorizando necesidades urgentes (comer, huir, descansar).
-  - `Navigator` mueve por pathfinding, `CitizenActionExecutor` aplica efectos (recolección, construcción, combate, cuidado de cultivos, descanso, almacenamiento) y loggea acciones.
-  - `ResourceCollectionEngine` implementa el “cerebro” recolector: fases ir al recurso → recolectar → ir a almacén, con capacidad de carga por tipo. Deposita en celdas con `village/granary/warehouse`.
-- Roles clave:
-  - `farmer`: prioriza tareas de cultivo en celdas farm (sow/fertilize/harvest), luego usa el cerebro recolector de comida como fallback.
-  - `worker`: sigue directivas de construcción (llevar piedra/madera desde stockpile, trabajar en el sitio). Si no hay obra o falta material, pasa a recolectar piedra/madera según stock/capacidad.
-  - `warrior`: busca amenazas (`threats` del `WorldView`), defiende o patrulla el centro.
-  - `scout`: sigue marcas de `explore` o deambula.
-  - `child/elder`: pasivos; niño puede madurar a worker, elder sufre daño por edad.
-- Flujo de recursos: recolectores consumen nodos (renovables decrecen pero vuelven a crecer con clima), llevan carga a almacenes, `deposit/consume` del mundo ajusta stock y afecta moral/vida por hambre; construcción consume stock entregado por workers.
+## Villager system, roles, and resources
+- `SimulationSession` (`src/game/core/SimulationSession.ts`) instantiates `WorldEngine` and `CitizenSystem`, creates the initial tribe by difficulty, and propagates events/climate each tick.
+- `CitizenSystem` (`src/game/systems/CitizenSystem.ts`) orchestrates:
+  - `CitizenNeedsSimulator` applies hunger/fatigue/morale and deaths.
+  - `CitizenBehaviorDirector` decides actions by role/goal, prioritizing urgent needs (eat, flee, rest).
+  - `Navigator` moves via pathfinding; `CitizenActionExecutor` applies effects (gathering, construction, combat, crop care, rest, storage) and logs actions.
+  - `ResourceCollectionEngine` implements the gatherer “brain”: phases go to resource → gather → go to storage, with carrying capacity per type. Deposits in cells with `village/granary/warehouse`.
+- Key roles:
+  - `farmer`: prioritizes crop tasks in farm cells (sow/fertilize/harvest), then uses the food gatherer brain as fallback.
+  - `worker`: follows construction directives (haul stone/wood from stockpile, work on site). If no site or missing material, switches to gathering stone/wood based on stock/capacity.
+  - `warrior`: looks for threats (`threats` from `WorldView`), defends or patrols the center.
+  - `scout`: follows `explore` marks or roams.
+  - `child/elder`: passive; child can mature to worker, elder takes age damage.
+- Resource flow: gatherers consume nodes (renewables decay but regrow with climate), carry loads to storage, `deposit/consume` on the world adjusts stock and affects morale/life from hunger; construction consumes stock delivered by workers.
 
-## Cómo se relaciona con las acciones del jugador
-- Roles: sliders en HUD (`Game.handleRoleSliderInput`) rebalancean poblaciones asignables llamando a `CitizenSystem.rebalanceRoles`; los cambios se aplican en caliente cuando el aldeano no está “busy”.
-- Planificación: botones/atajos activan modos farm/mine/gather/build. Arrastrar sobre el mapa llama a `WorldEngine.setPriorityAt`, pintando celdas que las IA usan para escoger recursos o definir tareas de cultivo.
-- Construcción: en modo build se selecciona estructura desbloqueada (depende de población en `SimulationSession.getAvailableStructures`), se coloca blueprint (`planConstruction`). `StructureManager` crea sitios; `workerAI` lleva materiales del stockpile y aplica trabajo hasta completar, lo que a su vez amplía capacidades (granero/almacén) y habilita defensa/fe (torre/templo).
-- Ritmo temporal: el jugador ajusta `speedMultiplier` o pausa; esto modifica cuántos ticks se ejecutan por cuadro pero no cambia la lógica de IA por tick.
-- Selección y enfoque: clic/tap selecciona aldeano o muestra tooltip de celda; la cámara puede enfocarse en un aldeano desde el panel, pero la IA sigue autónoma.
+## How it relates to player actions
+- Roles: sliders in HUD (`Game.handleRoleSliderInput`) rebalance assignable populations via `CitizenSystem.rebalanceRoles`; changes apply live when a villager isn’t “busy.”
+- Planning: buttons/hotkeys activate farm/mine/gather/build modes. Painting the map calls `WorldEngine.setPriorityAt`, marking cells the AI uses to pick resources or define crop tasks.
+- Construction: in build mode select an unlocked structure (depends on population in `SimulationSession.getAvailableStructures`), place blueprint (`planConstruction`). `StructureManager` creates sites; `workerAI` hauls materials from stockpile and works until done, which expands capacities (granary/warehouse) and enables defense/faith (tower/temple).
+- Time pacing: the player tweaks `speedMultiplier` or pauses; this changes how many ticks run per frame but not per-tick AI logic.
+- Selection and focus: click/tap selects a villager or shows the cell tooltip; the camera can focus on a villager from the panel, but AI stays autonomous.
