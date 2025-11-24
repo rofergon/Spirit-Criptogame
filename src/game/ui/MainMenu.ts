@@ -44,6 +44,7 @@ export class MainMenu {
   private readonly previewThrottleMs = 220;
   private buttonRegions: Partial<Record<MenuButtonKey, ButtonRegion>> = {};
   private useMobileLayout: boolean;
+  private readonly onStartCallback?: (config: WorldGenerationConfig) => void;
   private keyListenerAttached = false;
   private keydownHandler = (e: KeyboardEvent) => {
     if (!this.isVisible) return;
@@ -61,13 +62,14 @@ export class MainMenu {
     }
   };
 
-  constructor(canvas: HTMLCanvasElement, options?: { isMobile?: boolean }) {
+  constructor(canvas: HTMLCanvasElement, options?: { isMobile?: boolean; onStart?: (config: WorldGenerationConfig) => void }) {
     this.canvas = canvas;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("No se pudo obtener el contexto 2D");
     this.ctx = ctx;
     this.seedInputValue = this.config.seed.toString();
     this.useMobileLayout = options?.isMobile ?? false;
+    this.onStartCallback = options?.onStart;
 
     this.setupEventListeners();
     this.requestPreviewUpdate();
@@ -121,6 +123,8 @@ export class MainMenu {
     switch (button) {
       case "start":
         this.isVisible = false;
+        this.detachKeyListener();
+        this.onStartCallback?.({ ...this.config });
         break;
 
       case "randomSeed":
