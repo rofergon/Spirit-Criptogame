@@ -29,7 +29,7 @@ export class SimulationSession {
   private extinctionAnnounced = false;
   private initialized = false;
 
-  constructor(private playerTribeId: number, private hooks: SimulationHooks = {}) {}
+  constructor(private playerTribeId: number, private hooks: SimulationHooks = {}) { }
 
   initialize(config: SimulationConfig) {
     if (this.initialized) return;
@@ -76,8 +76,7 @@ export class SimulationSession {
   }
 
   applyPriority(priority: PriorityMark) {
-    // Ya no se usa el espíritu del jugador para aplicar prioridades
-    // Esta funcionalidad se maneja ahora a través de la interfaz de planificación
+
     if (!this.initialized) return;
   }
 
