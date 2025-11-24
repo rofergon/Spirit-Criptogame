@@ -44,13 +44,22 @@ export class Game {
     slots: HTMLSpanElement | null;
     help: HTMLParagraphElement | null;
   } = {
-      input: document.querySelector<HTMLInputElement>("#role-devotee"),
-      value: document.querySelector<HTMLSpanElement>("#role-value-devotee"),
-      slots: document.querySelector<HTMLSpanElement>("#role-devotee-slots"),
-      help: document.querySelector<HTMLParagraphElement>("#role-devotee-help"),
-    };
+    input: document.querySelector<HTMLInputElement>("#role-devotee"),
+    value: document.querySelector<HTMLSpanElement>("#role-value-devotee"),
+    slots: document.querySelector<HTMLSpanElement>("#role-devotee-slots"),
+    help: document.querySelector<HTMLParagraphElement>("#role-devotee-help"),
+  };
   private readonly devoteeSlotsPerTemple = 3;
   private devoteeTarget = 0;
+  private token1Pill = document.querySelector<HTMLDivElement>("#token1-pill");
+  private tokenModal = document.querySelector<HTMLDivElement>("#token-modal");
+  private tokenModalBackdrop = document.querySelector<HTMLDivElement>("#token-modal-backdrop");
+  private tokenModalClose = document.querySelector<HTMLButtonElement>("#token-modal-close");
+  private tokenModalCancel = document.querySelector<HTMLButtonElement>("#token-modal-cancel");
+  private tokenModalConvertAll = document.querySelector<HTMLButtonElement>("#token-convert-all");
+  private tokenModalFaithValue = document.querySelector<HTMLSpanElement>("#token-modal-faith");
+  private tokenModalRate = document.querySelector<HTMLSpanElement>("#token-modal-rate");
+  private tokenModalStatus = document.querySelector<HTMLParagraphElement>("#token-modal-status");
   private debugExportButton = document.querySelector<HTMLButtonElement>("#debug-export");
   private extinctionAnnounced = false;
   private gameInitialized = false;
@@ -118,6 +127,7 @@ export class Game {
     this.setupRoleControls();
     this.setupSpeedControls();
     this.setupPlanningControls();
+    this.setupTokenUI();
     this.bindCanvasEvents();
     this.debugExportButton?.addEventListener("click", this.exportDebugLog);
 
@@ -520,6 +530,23 @@ export class Game {
     this.updatePlanningHint();
     this.updateBuildSelectorVisibility();
     this.updateStructureDetails();
+  }
+
+  private setupTokenUI() {
+    const open = (event?: KeyboardEvent | MouseEvent) => {
+      if (event && event.type === "keydown") {
+        const key = (event as KeyboardEvent).key;
+        if (key !== "Enter" && key !== " ") return;
+        event.preventDefault();
+      }
+      this.openTokenModal();
+    };
+    this.token1Pill?.addEventListener("click", open);
+    this.token1Pill?.addEventListener("keydown", open);
+    this.tokenModalConvertAll?.addEventListener("click", this.convertAllFaithToToken1);
+    this.tokenModalClose?.addEventListener("click", this.closeTokenModal);
+    this.tokenModalCancel?.addEventListener("click", this.closeTokenModal);
+    this.tokenModalBackdrop?.addEventListener("click", this.closeTokenModal);
   }
 
   private handleRoleSliderInput = () => {
@@ -927,6 +954,50 @@ export class Game {
     }
   }
 
+  private openTokenModal = () => {
+    if (!this.simulation || !this.tokenModal || !this.tokenModalBackdrop) {
+      return;
+    }
+    this.updateTokenModalStats();
+    this.tokenModal.classList.remove("hidden");
+    this.tokenModalBackdrop.classList.remove("hidden");
+  };
+
+  private closeTokenModal = () => {
+    this.tokenModal?.classList.add("hidden");
+    this.tokenModalBackdrop?.classList.add("hidden");
+  };
+
+  private updateTokenModalStats() {
+    if (!this.simulation) return;
+    const faith = this.simulation.getFaithSnapshot().value;
+    const rate = this.simulation.getFaithConversionRate();
+    if (this.tokenModalFaithValue) {
+      this.tokenModalFaithValue.textContent = Math.floor(faith).toString();
+    }
+    if (this.tokenModalRate) {
+      this.tokenModalRate.textContent = `${rate} Fe → ${rate} Token1`;
+    }
+    if (this.tokenModalStatus) {
+      this.tokenModalStatus.textContent = faith <= 0 ? "No hay Fe acumulada para convertir." : "Convierte tu Fe a Token1.";
+    }
+  }
+
+  private convertAllFaithToToken1 = () => {
+    if (!this.simulation) {
+      return;
+    }
+    const result = this.simulation.convertFaithToToken1();
+    if (result.faithSpent <= 0) {
+      this.hud.updateStatus("No hay Fe disponible para convertir.");
+      this.closeTokenModal();
+      return;
+    }
+    this.logEvent(`Has convertido ${result.faithSpent.toFixed(1)} Fe en ${result.token1Gained.toFixed(1)} Token1.`);
+    this.updateHUD();
+    this.closeTokenModal();
+  };
+
   private loop = (time: number) => {
     if (!this.running) return;
 
@@ -1024,6 +1095,7 @@ export class Game {
     const livingPopulation = citizens.filter((citizen) => citizen.state === "alive").length;
     const hudSnapshot: HUDSnapshot = {
       faith: this.simulation.getFaithSnapshot(),
+      tokens: this.simulation.getTokens(),
       population: {
         value: livingPopulation,
         trend: this.simulation.getResourceTrendAverage("population"),

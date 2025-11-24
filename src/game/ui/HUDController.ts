@@ -2,6 +2,7 @@ import type { ClimateState, ToastNotification } from "../core/types";
 
 export type HUDSnapshot = {
   faith: { value: number; perHour: number };
+  tokens: { token1: number; token2: number };
   population: { value: number; trend: number };
   climate: ClimateState;
   food: { value: number; capacity: number; trend: number };
@@ -14,6 +15,8 @@ export class HUDController {
   private hudPopulation = document.querySelector<HTMLSpanElement>("#energy");
   private hudClimate = document.querySelector<HTMLSpanElement>("#time");
   private hudFaith = document.querySelector<HTMLSpanElement>("#score");
+  private hudToken1 = document.querySelector<HTMLSpanElement>("#token1-value");
+  private hudToken2 = document.querySelector<HTMLSpanElement>("#token2-value");
   private hudFood = document.querySelector<HTMLSpanElement>("#food");
   private hudStone = document.querySelector<HTMLSpanElement>("#stone");
   private hudWood = document.querySelector<HTMLSpanElement>("#wood");
@@ -34,6 +37,14 @@ export class HUDController {
       const trend = perHour > 0.01 ? "⬆️" : perHour < -0.01 ? "⬇️" : "➡️";
       this.hudFaith.textContent = `${Math.floor(snapshot.faith.value)} Fe ${trend}`;
       this.hudFaith.setAttribute("title", `Fe +${perHour.toFixed(2)}/h`);
+    }
+
+    if (this.hudToken1) {
+      this.hudToken1.textContent = `${Math.floor(snapshot.tokens.token1)}`;
+    }
+
+    if (this.hudToken2) {
+      this.hudToken2.textContent = `${Math.floor(snapshot.tokens.token2)}`;
     }
     if (this.hudPopulation) {
       const arrow = snapshot.population.trend > 0.1 ? "⬆️" : snapshot.population.trend < -0.1 ? "⬇️" : "➡️";

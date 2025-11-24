@@ -19,6 +19,15 @@
           <span class="hud-pill-icon" aria-hidden="true">✨</span>
           <span class="hud-pill-value" id="score" aria-label="Fe">0</span>
         </div>
+        <div class="hud-pill token-pill" data-stat="token1" id="token1-pill" role="button" tabindex="0"
+          title="Convertir Fe en Token1">
+          <span class="hud-pill-icon" aria-hidden="true">🪙</span>
+          <span class="hud-pill-value" id="token1-value" aria-label="Token1">0</span>
+        </div>
+        <div class="hud-pill token-pill" data-stat="token2" id="token2-pill" title="Saldo de Token2">
+          <span class="hud-pill-icon" aria-hidden="true">💠</span>
+          <span class="hud-pill-value" id="token2-value" aria-label="Token2">0</span>
+        </div>
         <div class="hud-pill" data-stat="population">
           <span class="hud-pill-icon" aria-hidden="true">👥</span>
           <span class="hud-pill-value" id="energy" aria-label="Población">0</span>
@@ -200,6 +209,32 @@
 
   <!-- Citizen Control Panel (Bottom Left) -->
   <div id="citizen-control-panel" class="hidden"></div>
+
+  <!-- Token conversion modal -->
+  <div id="token-modal-backdrop" class="modal-backdrop hidden"></div>
+  <div id="token-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="token-modal-title">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="token-modal-title">Convertir Fe a Token1</h3>
+        <button type="button" class="modal-close" id="token-modal-close" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="token-modal-status">Selecciona cuánto convertir.</p>
+        <div class="modal-row">
+          <span>Fe disponible</span>
+          <strong id="token-modal-faith">0</strong>
+        </div>
+        <div class="modal-row">
+          <span>Tasa</span>
+          <strong id="token-modal-rate">1 Fe → 1 Token1</strong>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="token-convert-all" class="primary">Convertir todo</button>
+        <button type="button" id="token-modal-cancel">Cancelar</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

@@ -30,6 +30,9 @@ export class SimulationSession {
   private initialized = false;
   private faith = 0;
   private faithPerHour = 0;
+  private token1 = 0;
+  private token2 = 0;
+  private faithToToken1Rate = 1;
 
   constructor(private playerTribeId: number, private hooks: SimulationHooks = {}) { }
 
@@ -42,6 +45,8 @@ export class SimulationSession {
     this.extinctionAnnounced = false;
     this.faith = 0;
     this.faithPerHour = 0;
+    this.token1 = 0;
+    this.token2 = 0;
     this.world = new WorldEngine(config.worldSize, config.seed);
 
     this.citizenSystem = new CitizenSystem(this.world, (event) => this.handleCitizenEvent(event));
@@ -139,6 +144,14 @@ export class SimulationSession {
 
   getFaithSnapshot() {
     return { value: this.faith, perHour: this.faithPerHour };
+  }
+
+  getTokens() {
+    return { token1: this.token1, token2: this.token2 };
+  }
+
+  getFaithConversionRate() {
+    return this.faithToToken1Rate;
   }
 
   getResourceTrendAverage(type: keyof ResourceTrend) {
@@ -278,5 +291,17 @@ export class SimulationSession {
     this.faithPerHour = gainPerHour;
     const gainThisTick = gainPerHour * (tickHours / 1);
     this.faith += gainThisTick;
+  }
+
+  convertFaithToToken1(requestedFaith?: number) {
+    const available = Math.max(0, this.faith);
+    const spend = Math.min(requestedFaith ?? available, available);
+    if (spend <= 0) {
+      return { faithSpent: 0, token1Gained: 0 };
+    }
+    const gained = spend * this.faithToToken1Rate;
+    this.faith -= spend;
+    this.token1 += gained;
+    return { faithSpent: spend, token1Gained: gained };
   }
 }
