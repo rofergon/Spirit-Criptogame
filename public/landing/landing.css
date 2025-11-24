@@ -205,6 +205,11 @@ body {
   margin-top: 0.8rem;
 }
 
+.pill-row--bottom {
+  justify-content: flex-start;
+  margin: 0.4rem 0 0.6rem;
+}
+
 .pill {
   padding: 0.35rem 0.7rem;
   border-radius: 999px;
