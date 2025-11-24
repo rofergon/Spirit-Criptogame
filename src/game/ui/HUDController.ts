@@ -1,6 +1,7 @@
 import type { ClimateState, ToastNotification } from "../core/types";
 
 export type HUDSnapshot = {
+  faith: { value: number; perHour: number };
   population: { value: number; trend: number };
   climate: ClimateState;
   food: { value: number; capacity: number; trend: number };
@@ -12,6 +13,7 @@ export type HUDSnapshot = {
 export class HUDController {
   private hudPopulation = document.querySelector<HTMLSpanElement>("#energy");
   private hudClimate = document.querySelector<HTMLSpanElement>("#time");
+  private hudFaith = document.querySelector<HTMLSpanElement>("#score");
   private hudFood = document.querySelector<HTMLSpanElement>("#food");
   private hudStone = document.querySelector<HTMLSpanElement>("#stone");
   private hudWood = document.querySelector<HTMLSpanElement>("#wood");
@@ -27,6 +29,12 @@ export class HUDController {
   private logArchive: string[] = [];
 
   updateHUD(snapshot: HUDSnapshot) {
+    if (this.hudFaith) {
+      const perHour = snapshot.faith.perHour;
+      const trend = perHour > 0.01 ? "⬆️" : perHour < -0.01 ? "⬇️" : "➡️";
+      this.hudFaith.textContent = `${Math.floor(snapshot.faith.value)} Fe ${trend}`;
+      this.hudFaith.setAttribute("title", `Fe +${perHour.toFixed(2)}/h`);
+    }
     if (this.hudPopulation) {
       const arrow = snapshot.population.trend > 0.1 ? "⬆️" : snapshot.population.trend < -0.1 ? "⬇️" : "➡️";
       this.hudPopulation.textContent = `${snapshot.population.value} habitantes ${arrow}`;
