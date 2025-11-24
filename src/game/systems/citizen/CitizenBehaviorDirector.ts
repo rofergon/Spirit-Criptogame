@@ -455,11 +455,48 @@ const passiveAI: CitizenAI = (citizen, view) => {
   return { type: "idle" };
 };
 
+const worshipAI: CitizenAI = (citizen, view) => {
+  const world = activeDirector?.world;
+  let target: Vec2 | null = null;
+
+  // Prefer a known temple position from the world map (covers cases outside the local view radius)
+  const structures = world?.getStructures()?.filter((structure) => structure.type === "temple") ?? [];
+  if (structures.length > 0) {
+    const closest = structures.reduce<{ pos: Vec2; distance: number } | null>((best, structure) => {
+      const distance = Math.abs(structure.x - citizen.x) + Math.abs(structure.y - citizen.y);
+      if (!best || distance < best.distance) {
+        return { pos: { x: structure.x, y: structure.y }, distance };
+      }
+      return best;
+    }, null);
+    target = closest?.pos ?? null;
+  }
+
+  // Fallback to any temple within the current view
+  if (!target) {
+    const nearbyTemple = view.cells.find((cell) => cell.structure === "temple");
+    if (nearbyTemple) {
+      target = { x: nearbyTemple.x, y: nearbyTemple.y };
+    }
+  }
+
+  if (target) {
+    const distance = Math.abs(target.x - citizen.x) + Math.abs(target.y - citizen.y);
+    if (distance > 0) {
+      return { type: "move", x: target.x, y: target.y };
+    }
+    return { type: "rest" };
+  }
+
+  return passiveAI(citizen, view);
+};
+
 const GOAL_BEHAVIOR_MAP = {
   passive: passiveAI,
   raid: raiderAI,
   settle: settlerAI,
   beast: beastAI,
+  worship: worshipAI,
 } as const;
 
 type GoalBehavior = keyof typeof GOAL_BEHAVIOR_MAP;
