@@ -72,6 +72,14 @@ export class CellTooltipController {
     this.tooltipElement.style.transform = "translateY(-10px)";
   }
 
+  isPointerOver(target?: EventTarget | null) {
+    if (!this.tooltipElement) return false;
+    if (target && target instanceof Node) {
+      return this.tooltipElement.contains(target);
+    }
+    return false;
+  }
+
   updatePosition(position: { x: number; y: number }) {
     if (!this.tooltipElement) return;
 

@@ -1487,7 +1487,10 @@ export class Game {
     });
   }
 
-  private handleCanvasLeave = () => {
+  private handleCanvasLeave = (event?: MouseEvent) => {
+    if (this.cellTooltip.isPointerOver(event?.relatedTarget)) {
+      return;
+    }
     this.cellTooltip.hide();
     this.planningStrokeActive = false;
     this.planningStrokeCells.clear();
