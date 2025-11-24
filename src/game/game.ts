@@ -848,6 +848,8 @@ export class Game {
     if (this.mainMenu.isMenuVisible()) {
       this.mobileActionBar?.classList.add("is-hidden");
       this.mainMenu.render();
+      // Evitar que el delta explote al cerrar el menú
+      this.lastTime = time;
       requestAnimationFrame(this.loop);
       return;
     }
