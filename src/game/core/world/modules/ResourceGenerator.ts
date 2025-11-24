@@ -169,12 +169,16 @@ export class ResourceGenerator {
     public placeStoneClusters(cells: WorldCell[][]) {
         const stonePositions: Vec2[] = [];
         const validTerrains: Terrain[] = ["mountain", "tundra", "desert"];
+        const mountainPositions: Vec2[] = [];
 
         for (let y = 0; y < this.size; y += 1) {
             for (let x = 0; x < this.size; x += 1) {
                 const cell = cells[y]?.[x];
                 if (cell && validTerrains.includes(cell.terrain)) {
                     stonePositions.push({ x, y });
+                    if (cell.terrain === "mountain") {
+                        mountainPositions.push({ x, y });
+                    }
                 }
             }
         }
@@ -194,6 +198,21 @@ export class ResourceGenerator {
         const used = new Set<string>();
         let placedClusters = 0;
         const maxAttempts = desiredClusters * 4;
+
+        // Garantizar al menos un clúster en montaña si existe una
+        if (mountainPositions.length > 0) {
+            const mountainAttempts = Math.min(3, mountainPositions.length);
+            for (let attempt = 0; attempt < mountainAttempts && placedClusters < desiredClusters; attempt += 1) {
+                const seedIndex = Math.floor(this.rng() * mountainPositions.length);
+                const seed = mountainPositions[seedIndex];
+                if (!seed) continue;
+                const created = this.growStoneCluster(seed, cells, used);
+                if (created > 0) {
+                    placedClusters += 1;
+                    break;
+                }
+            }
+        }
 
         for (let attempt = 0; attempt < maxAttempts && placedClusters < desiredClusters; attempt += 1) {
             const seedIndex = Math.floor(this.rng() * stonePositions.length);

@@ -118,8 +118,10 @@ export class TerrainGenerator {
         }
         this.processOceans(rows);
         this.processBeaches(rows);
+        const forcedMountain = this.ensureMountainZone(rows, elevationMap);
         this.resourceGenerator.placeWoodClusters(rows);
         this.resourceGenerator.placeStoneClusters(rows);
+        this.ensureStonePresence(rows, elevationMap, forcedMountain);
         return rows;
     }
 
@@ -684,5 +686,137 @@ export class TerrainGenerator {
                 }
             }
         }
+    }
+
+    private ensureMountainZone(rows: WorldCell[][], elevationMap: number[][]): Vec2 | null {
+        const existingMountain = rows.flat().find((cell) => cell.terrain === "mountain");
+        if (existingMountain) {
+            return { x: existingMountain.x, y: existingMountain.y };
+        }
+
+        let bestPos: Vec2 | null = null;
+        let bestScore = -Infinity;
+        const center = (this.size - 1) / 2;
+
+        for (let y = 0; y < this.size; y += 1) {
+            for (let x = 0; x < this.size; x += 1) {
+                const cell = rows[y]?.[x];
+                const elevation = elevationMap[y]?.[x];
+                if (!cell || elevation === undefined) continue;
+                if (cell.terrain === "ocean" || cell.terrain === "river") continue;
+
+                const distanceToCenter = Math.hypot(x - center, y - center);
+                const normalizedDistance = distanceToCenter / this.size;
+                const coastalBuffer = Math.min(x, y, this.size - 1 - x, this.size - 1 - y);
+                const coastalPenalty = coastalBuffer < Math.max(3, Math.floor(this.size * 0.06)) ? 0.85 : 1;
+
+                const score = elevation * coastalPenalty - normalizedDistance * 0.08;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestPos = { x, y };
+                }
+            }
+        }
+
+        if (!bestPos) {
+            return null;
+        }
+
+        const cluster = this.buildMountainCluster(bestPos, rows, elevationMap);
+        cluster.forEach((pos) => {
+            const cell = rows[pos.y]?.[pos.x];
+            if (!cell) return;
+            cell.terrain = "mountain";
+            cell.fertility = this.resourceGenerator.calculateFertility("mountain", cell.moisture);
+            cell.resource = undefined;
+            cell.cropProgress = 0;
+            cell.cropStage = 0;
+            cell.farmTask = null;
+        });
+
+        return cluster[0] ?? bestPos;
+    }
+
+    private buildMountainCluster(anchor: Vec2, rows: WorldCell[][], elevationMap: number[][]): Vec2[] {
+        const cluster: Vec2[] = [];
+        const queue: Vec2[] = [anchor];
+        const visited = new Set<string>();
+        const neighborOffsets: Vec2[] = [
+            { x: 1, y: 0 },
+            { x: -1, y: 0 },
+            { x: 0, y: 1 },
+            { x: 0, y: -1 },
+            { x: 1, y: -1 },
+            { x: -1, y: 1 },
+        ];
+        const targetSize = clamp(Math.floor(this.size / 6), 4, 10);
+
+        while (queue.length && cluster.length < targetSize) {
+            const pos = queue.shift();
+            if (!pos) continue;
+            const key = `${pos.x},${pos.y}`;
+            if (visited.has(key)) continue;
+            const cell = rows[pos.y]?.[pos.x];
+            const elevation = elevationMap[pos.y]?.[pos.x];
+            if (!cell || elevation === undefined) continue;
+            if (cell.terrain === "ocean" || cell.terrain === "river") continue;
+
+            visited.add(key);
+            cluster.push(pos);
+
+            const neighbors = neighborOffsets
+                .map((offset) => {
+                    const nx = pos.x + offset.x;
+                    const ny = pos.y + offset.y;
+                    const neighborElevation = elevationMap[ny]?.[nx];
+                    return { x: nx, y: ny, elevation: neighborElevation ?? -1 };
+                })
+                .filter(({ x, y, elevation }) => x >= 0 && y >= 0 && x < this.size && y < this.size && elevation >= 0.12)
+                .sort((a, b) => b.elevation - a.elevation);
+
+            neighbors.forEach((neighbor) => {
+                const neighborKey = `${neighbor.x},${neighbor.y}`;
+                if (visited.has(neighborKey)) return;
+                if (cluster.length + queue.length >= targetSize * 2) return;
+                if (this.rng() < 0.15 && cluster.length > 2) return;
+                queue.push({ x: neighbor.x, y: neighbor.y });
+            });
+        }
+
+        return cluster;
+    }
+
+    private ensureStonePresence(rows: WorldCell[][], elevationMap: number[][], preferredPos: Vec2 | null) {
+        const hasStone = rows.some((row) => row.some((cell) => cell.resource?.type === "stone"));
+        if (hasStone) return;
+
+        let target: Vec2 | null = preferredPos;
+        if (!target) {
+            let bestPos: Vec2 | null = null;
+            let bestElevation = -Infinity;
+            for (let y = 0; y < this.size; y += 1) {
+                for (let x = 0; x < this.size; x += 1) {
+                    const cell = rows[y]?.[x];
+                    const elevation = elevationMap[y]?.[x];
+                    if (!cell || cell.terrain !== "mountain" || elevation === undefined) continue;
+                    if (elevation > bestElevation) {
+                        bestElevation = elevation;
+                        bestPos = { x, y };
+                    }
+                }
+            }
+            target = bestPos;
+        }
+
+        if (!target) {
+            return;
+        }
+
+        const cell = rows[target.y]?.[target.x];
+        if (!cell) return;
+
+        const amount = 6 + Math.floor(this.rng() * 4);
+        const richness = cell.terrain === "mountain" ? 1.25 : 0.9;
+        cell.resource = { type: "stone", amount, renewable: false, richness };
     }
 }
