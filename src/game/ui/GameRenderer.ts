@@ -68,12 +68,21 @@ const ensureSharedTextures = (cacheTag: string): TextureResources => {
   textures["structure_house"] = [loadImage(`/assets/extracted_icons/house.png${cacheTag}`, "structure_house")];
   textures["structure_warehouse"] = [loadImage(`/assets/extracted_icons/warehouse.png${cacheTag}`, "structure_warehouse")];
   textures["structure_granary"] = [loadImage(`/assets/extracted_icons/barn.png${cacheTag}`, "structure_granary")];
+  textures["structure_village"] = [loadImage(`/assets/extracted_icons/Urban_center.png${cacheTag}`, "structure_village")];
+  textures["structure_tower"] = [loadImage(`/assets/extracted_icons/Tower_defense.png${cacheTag}`, "structure_tower")];
+  textures["structure_temple"] = [loadImage(`/assets/extracted_icons/Temple.png${cacheTag}`, "structure_temple")];
 
   // Load resource icons
   textures["resource_food"] = [loadImage(`/assets/extracted_icons/wheat.png${cacheTag}`, "resource_food")];
   textures["resource_tree_1"] = [loadImage(`/assets/extracted_icons/tree_1.png${cacheTag}`, "resource_tree_1")];
   textures["resource_tree_2"] = [loadImage(`/assets/extracted_icons/tree_2.png${cacheTag}`, "resource_tree_2")];
   textures["construction_site"] = [loadImage(`/assets/extracted_icons/construction_site.png${cacheTag}`, "construction_site")];
+
+  // Load citizen icons
+  textures["citizen_lumberjack"] = [loadImage(`/assets/extracted_icons/Lumberjack.png${cacheTag}`, "citizen_lumberjack")];
+  textures["citizen_miner"] = [loadImage(`/assets/extracted_icons/Human_miner.png${cacheTag}`, "citizen_miner")];
+  textures["citizen_worker"] = [loadImage(`/assets/extracted_icons/Worker.png${cacheTag}`, "citizen_worker")];
+  textures["citizen_farmer"] = [loadImage(`/assets/extracted_icons/Farmer.png${cacheTag}`, "citizen_farmer")];
 
   const resources: TextureResources = { textures, hexFrame, cacheTag };
   sharedTextureState.resources = resources;
@@ -131,19 +140,26 @@ export class GameRenderer {
     const hex = createHexGeometry(cellSize);
     const canvasWidth = this.canvas.width;
     const canvasHeight = this.canvas.height;
-    const visibilityPadding = Math.max(4, cellSize * 0.5); // small buffer to avoid popping at edges
+    const visibilityPadding = Math.max(4, cellSize * 0.5);
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Ensure high quality scaling to avoid aliasing at low zoom
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
+
+    // --- Pass 1: Ground & Collection ---
+    type RenderItem = {
+      y: number; // For sorting
+      x: number; // Secondary sort for stability
+      draw: () => void;
+    };
+    const renderList: RenderItem[] = [];
 
     state.world.cells.forEach((row) =>
       row.forEach((cell) => {
         const center = getHexCenter(cell.x, cell.y, hex, offsetX, offsetY);
 
-        // Skip cells that fall completely outside the viewport
+        // Visibility check
         const halfWidth = hex.halfWidth + visibilityPadding;
         const halfHeight = hex.size + visibilityPadding;
         if (
@@ -155,6 +171,7 @@ export class GameRenderer {
           return;
         }
 
+        // 1. Draw Ground
         this.drawTerrainBase(center, hex, cell);
         this.drawTerrainDetail(center, hex, cell);
         this.drawHexFrame(center, hex);
@@ -165,41 +182,89 @@ export class GameRenderer {
           ctx.globalAlpha = 1;
         }
 
+        // 2. Collect Objects
+        // Structure
         if (cell.structure) {
-          this.drawStructure(cell.structure, center, cellSize);
+          renderList.push({
+            y: center.y,
+            x: center.x,
+            draw: () => this.drawStructure(cell.structure!, center, cellSize),
+          });
         }
 
+        // Resources / Crops
         if (cell.cropProgress > 0) {
-          this.drawCrop(cell, center, cellSize);
-          this.drawFarmOverlay(cell, center, hex);
+          renderList.push({
+            y: center.y,
+            x: center.x,
+            draw: () => {
+              this.drawCrop(cell, center, cellSize);
+              this.drawFarmOverlay(cell, center, hex);
+            },
+          });
         } else if (cell.resource) {
-          this.drawResource(cell, center, cellSize);
+          renderList.push({
+            y: center.y,
+            x: center.x,
+            draw: () => this.drawResource(cell, center, cellSize),
+          });
         }
 
+        // Construction Site
         if (cell.constructionSiteId) {
           const site = state.world.getConstructionSite(cell.constructionSiteId);
           if (site) {
-            this.drawConstructionOverlay(site, center, hex);
+            renderList.push({
+              y: center.y,
+              x: center.x,
+              draw: () => this.drawConstructionOverlay(site, center, hex),
+            });
           }
         }
       }),
     );
 
+    // Collect Citizens
     state.citizens.forEach((citizen) => {
       if (citizen.state === "dead") return;
       const center = getHexCenter(citizen.x, citizen.y, hex, offsetX, offsetY);
-      this.drawCitizen(citizen, center, hex);
 
-      if (citizen === state.selectedCitizen) {
-        ctx.strokeStyle = "#ffff00";
-        ctx.lineWidth = 2;
-        traceHexPath(ctx, center, hex);
-        ctx.stroke();
+      // Visibility check for citizens
+      if (
+        center.x + hex.size < 0 ||
+        center.x - hex.size > canvasWidth ||
+        center.y + hex.size < 0 ||
+        center.y - hex.size > canvasHeight
+      ) {
+        return;
       }
+
+      renderList.push({
+        y: center.y,
+        x: center.x,
+        draw: () => {
+          this.drawCitizen(citizen, center, hex);
+          if (citizen === state.selectedCitizen) {
+            ctx.strokeStyle = "#ffff00";
+            ctx.lineWidth = 2;
+            traceHexPath(ctx, center, hex);
+            ctx.stroke();
+          }
+        },
+      });
     });
 
-    this.drawNotifications(state.notifications);
+    // --- Pass 2: Sort & Draw Objects ---
+    renderList.sort((a, b) => {
+      if (Math.abs(a.y - b.y) < 0.1) {
+        return a.x - b.x;
+      }
+      return a.y - b.y;
+    });
 
+    renderList.forEach((item) => item.draw());
+
+    this.drawNotifications(state.notifications);
     this.drawLegend();
   }
 
@@ -362,6 +427,96 @@ export class GameRenderer {
   private drawCitizen(citizen: Citizen, center: Vec2, hex: HexGeometry) {
     const ctx = this.ctx;
 
+    // Determine which icon to use based on citizen activity
+    let iconKey: string | null = null;
+    const action = citizen.debugLastAction?.toLowerCase() || "";
+    const task = citizen.activeTask;
+    const goal = citizen.currentGoal?.toLowerCase() || "";
+
+    // Priority 1: Check active task (currently doing)
+    if (task === "construct") {
+      iconKey = "citizen_worker";
+    } else if (task === "tendCrops") {
+      iconKey = "citizen_farmer";
+    } else if (task === "gather") {
+      // When gathering, check what they're gathering from action or goal
+      if (action.includes("wood") || action.includes("tree") || action.includes("lumber") || goal.includes("wood")) {
+        iconKey = "citizen_lumberjack";
+      } else if (action.includes("stone") || action.includes("mine") || goal.includes("stone")) {
+        iconKey = "citizen_miner";
+      }
+    }
+
+    // Priority 2: Check debugLastAction for recent activities
+    if (!iconKey) {
+      if (action.includes("wood") || action.includes("tree") || action.includes("lumber")) {
+        iconKey = "citizen_lumberjack";
+      } else if (action.includes("stone") || action.includes("mine") || action.includes("mining")) {
+        iconKey = "citizen_miner";
+      } else if (action.includes("build") || action.includes("construct")) {
+        iconKey = "citizen_worker";
+      } else if (action.includes("farm") || action.includes("crop") || action.includes("harvest") || action.includes("plant")) {
+        iconKey = "citizen_farmer";
+      }
+    }
+
+    // Priority 3: Check current goal (walking toward task)
+    if (!iconKey && goal) {
+      if (goal.includes("wood") || goal.includes("tree") || goal.includes("gather") && goal.includes("wood")) {
+        iconKey = "citizen_lumberjack";
+      } else if (goal.includes("stone") || goal.includes("mine")) {
+        iconKey = "citizen_miner";
+      } else if (goal.includes("build") || goal.includes("construct")) {
+        iconKey = "citizen_worker";
+      } else if (goal.includes("farm") || goal.includes("crop") || goal.includes("harvest")) {
+        iconKey = "citizen_farmer";
+      }
+    }
+
+    // Priority 4: Default to role-based icon
+    if (!iconKey && citizen.role === "farmer") {
+      iconKey = "citizen_farmer";
+    } else if (!iconKey && citizen.role === "worker") {
+      iconKey = "citizen_worker";
+    }
+
+    // Try to draw the specialized icon
+    if (iconKey) {
+      const textures = this.textures[iconKey];
+      if (textures && textures.length > 0) {
+        const texture = textures[0];
+        if (texture && texture.complete) {
+          // Preserve aspect ratio and reduce size to fit in cell
+          const maxSize = hex.size * 1; // Reduced from 0.8 to 0.6
+          const aspectRatio = texture.width / texture.height;
+
+          let width, height;
+          if (aspectRatio > 1) {
+            // Wider than tall
+            width = maxSize;
+            height = maxSize / aspectRatio;
+          } else {
+            // Taller than wide
+            height = maxSize;
+            width = maxSize * aspectRatio;
+          }
+
+          ctx.drawImage(texture, center.x - width / 2, center.y - height / 2, width, height);
+
+          // Draw blessed effect if applicable
+          if (citizen.blessedUntil && citizen.age < citizen.blessedUntil) {
+            ctx.strokeStyle = "#ffea00";
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(center.x, center.y, hex.size * 0.7, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          return;
+        }
+      }
+    }
+
+    // Fallback to existing sprite rendering
     drawCitizenSprite(ctx, citizen, center.x, center.y, hex.size);
 
     if (citizen.blessedUntil && citizen.age < citizen.blessedUntil) {
@@ -402,7 +557,7 @@ export class GameRenderer {
         drawStone(ctx, center.x, center.y, cellSize);
         break;
       case "waterSpring":
-        drawWaterSpring(ctx, center.x, center.y, cellSize);
+        // Water spring icon removed - no rendering
         break;
     }
   }
@@ -410,55 +565,23 @@ export class GameRenderer {
   private drawWoodCluster(cell: WorldCell, center: Vec2, cellSize: number) {
     const resource = cell.resource;
     if (!resource) return;
-    const fullness = clamp(resource.amount / 12, 0.2, 1);
-    const maxTrees = 4;
-    const treeCount = clamp(Math.round(fullness * maxTrees), 1, maxTrees);
-    const offsets = this.getWoodOffsets(cell, maxTrees);
 
-    for (let i = 0; i < treeCount; i += 1) {
-      const offset = offsets[i];
-      if (!offset) continue;
-      const x = center.x + offset.x * cellSize;
-      const y = center.y + offset.y * cellSize;
-      // Vary tree size slightly
-      const sizeVar = 1 + (Math.sin(x * y) * 0.1);
+    // Use tree icons if available
+    // Randomly choose tree 1 or 2 based on cell position
+    const treeType = ((cell.x + cell.y) % 2) + 1; // 1 or 2
+    const treeTextures = this.textures[`resource_tree_${treeType}`];
 
-      // Use tree icons if available
-      const treeType = (Math.abs(Math.floor(x * y * 100)) % 2) + 1; // 1 or 2
-      const treeTextures = this.textures[`resource_tree_${treeType}`];
-
-      if (treeTextures && treeTextures.length > 0) {
-        const texture = treeTextures[0];
-        if (texture && texture.complete) {
-          const size = cellSize * sizeVar * 1.2; // Slightly larger for icons
-          this.ctx.drawImage(texture, x - size / 2, y - size / 2, size, size);
-        } else {
-          drawTree(this.ctx, x, y, cellSize * sizeVar);
-        }
+    if (treeTextures && treeTextures.length > 0) {
+      const texture = treeTextures[0];
+      if (texture && texture.complete) {
+        const size = cellSize * 1.2; // Reduced by 20% (was 1.5)
+        this.ctx.drawImage(texture, center.x - size / 2, center.y - size / 2, size, size);
       } else {
-        drawTree(this.ctx, x, y, cellSize * sizeVar);
+        drawTree(this.ctx, center.x, center.y, cellSize * 1.2);
       }
+    } else {
+      drawTree(this.ctx, center.x, center.y, cellSize * 1.2);
     }
-  }
-
-  private getWoodOffsets(cell: WorldCell, count: number) {
-    const offsets = [
-      { x: -0.25, y: -0.2 },
-      { x: 0.23, y: -0.18 },
-      { x: -0.15, y: 0.25 },
-      { x: 0.2, y: 0.18 },
-      { x: 0, y: 0.05 },
-    ];
-    const hash = (cell.x * 73856093 + cell.y * 19349663) >>> 0;
-    const start = hash % offsets.length;
-
-    const arranged: Array<{ x: number; y: number }> = [];
-    for (let i = 0; i < count; i += 1) {
-      const offset = offsets[(start + i) % offsets.length];
-      if (!offset) continue;
-      arranged.push(offset);
-    }
-    return arranged;
   }
 
   private drawCrop(cell: WorldCell, center: Vec2, cellSize: number) {
@@ -509,16 +632,28 @@ export class GameRenderer {
       if (texture && texture.complete) {
         const ctx = this.ctx;
         // Adjust size to fit well within the hex
-        // Adjust size to fit well within the hex
         // Standard: Reduced by 20% + 5% -> 1.37
         // Campfire: Reduced by additional 10% -> 1.23
-        const scale = type === "campfire" ? 1.23 : 1.37;
+        // Tower: Reduced by additional 5% -> 1.30
+        // Temple: Reduced by additional 10% -> 1.23
+        let scale = 1.37;
+        if (type === "campfire") scale = 1.23;
+        if (type === "tower") scale = 1.15;
+        if (type === "temple") scale = 1.20;
         const size = cellSize * scale;
+
+        // Village: raise position by 10%
+        // Tower: raise position by 5%
+        // Temple: raise position by 5%
+        let offsetY = 0;
+        if (type === "village") offsetY = -cellSize * 0.1;
+        if (type === "tower") offsetY = -cellSize * 0.08;
+        if (type === "temple") offsetY = -cellSize * 0.05;
 
         ctx.drawImage(
           texture,
           center.x - size / 2,
-          center.y - size / 2,
+          center.y - size / 2 + offsetY,
           size,
           size
         );
