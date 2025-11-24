@@ -280,8 +280,8 @@ export class MainMenu {
     const previewX = previewMargin;
     const previewY = previewMargin;
 
-    const headerHeight = 227;
-    const configPanelHeight = 360;
+    const headerHeight = 160;
+    const configPanelHeight = 310;
     const configPanelWidth = Math.min(500, canvasWidth - margin * 2);
     const configPanelX = centerX - configPanelWidth / 2;
     const configPanelY = headerHeight;
@@ -289,12 +289,12 @@ export class MainMenu {
     const infoPanelHeight = 85;
     const infoPanelWidth = Math.min(500, canvasWidth - margin * 2);
     const infoPanelX = centerX - infoPanelWidth / 2;
-    const infoPanelY = configPanelY + configPanelHeight + 20;
+    const infoPanelY = configPanelY + configPanelHeight + 15;
 
-    const startButtonHeight = 60;
+    const startButtonHeight = 56;
     const startButtonWidth = 360;
     const startButtonX = centerX - startButtonWidth / 2;
-    const startButtonY = infoPanelY + infoPanelHeight + 20;
+    const startButtonY = infoPanelY + infoPanelHeight + 15;
 
     return {
       centerX,
@@ -324,7 +324,7 @@ export class MainMenu {
     const ctx = this.ctx;
     const titleSize = this.useMobileLayout ? 24 : 48;
     const subtitleSize = this.useMobileLayout ? 12 : 18;
-    const yPos = this.useMobileLayout ? 28 : 90;
+    const yPos = this.useMobileLayout ? 28 : 70;
 
     ctx.fillStyle = "#e8dcc5";
     ctx.font = `bold ${titleSize}px "Space Grotesk", Arial`;
@@ -423,11 +423,11 @@ export class MainMenu {
 
     // Sección: Semilla
     currentY = this.renderSeedSection(contentX, currentY, contentWidth);
-    currentY += this.useMobileLayout ? 14 : 40;
+    currentY += this.useMobileLayout ? 14 : 25;
 
     // Sección: Tamaño del mundo
     currentY = this.renderWorldSizeSection(contentX, currentY, bounds.x + bounds.width / 2);
-    currentY += this.useMobileLayout ? 14 : 70;
+    currentY += this.useMobileLayout ? 14 : 35;
 
     // Sección: Dificultad
     this.renderDifficultySection(contentX, currentY, bounds.x + bounds.width / 2);
