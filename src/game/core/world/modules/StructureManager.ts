@@ -18,6 +18,10 @@ export class StructureManager {
         return this.structures;
     }
 
+    public getStructureCount(type: StructureType) {
+        return this.structures.reduce((total, structure) => total + (structure.type === type ? 1 : 0), 0);
+    }
+
     public getConstructionSites() {
         return this.constructionSites;
     }
