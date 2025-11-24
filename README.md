@@ -68,6 +68,13 @@ game/
 - Terrain traits: elevation, humidity, fertility influence crops and resource richness.
 - Renewable nodes (food, wood) regrow with climate; stone is finite. Granaries/warehouses raise storage caps.
 
+## OneChain / OneWallet Integration
+- Wallet detection/connection lives in `src/game/wallet/onewalletDetector.ts` and `src/game/wallet/walletConfig.ts`; uses Wallet Standard (`@mysten/wallet-standard`) to find and connect OneWallet.
+- OneChain client helpers in `src/game/wallet/onechainClient.ts` wrap `@onelabs/sui` for balance queries and address formatting; defaults to testnet.
+- `connectOneWallet()` handles detection, standard:connect, and returns account info + OCT balance; `disconnectOneWallet()` and `onAccountChanged()` manage lifecycle/polling.
+- `mistToOct`/`octToMist` convert units; `setNetwork()` lets you switch target endpoints (user must also change it in the extension).
+- If OneWallet is missing, `openWalletModal()` shows an install prompt; balances are refreshed via `getOctBalance()`/`getCurrentAccountInfo()`.
+
 ## Debug & Dev Aids
 - Chronicle/history panel of events.
 - Per-citizen action history.
