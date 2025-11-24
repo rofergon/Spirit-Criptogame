@@ -222,3 +222,14 @@
     border: 1px solid rgba(93, 64, 55, 0.5);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
 }
+
+/* Locked state (viewable but not yet buildable) */
+.construction-hex-button.locked {
+    opacity: 0.55;
+    filter: grayscale(0.5);
+}
+
+.construction-hex-button.locked:hover {
+    opacity: 0.7;
+    transform: scale(1.02);
+}

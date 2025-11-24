@@ -661,8 +661,13 @@ export class Game {
       return;
     }
     if (this.planningPriority === "build") {
+      const isSelectedAvailable = this.selectedStructureType
+        ? this.availableStructures.includes(this.selectedStructureType)
+        : false;
       if (!this.selectedStructureType) {
         this.setPlanningHint("No buildings available yet. Increase population to unlock them.");
+      } else if (!isSelectedAvailable) {
+        this.setPlanningHint("Building locked. Meet the requirements to plan it.");
       } else {
         this.setPlanningHint("Click on the map to place the blueprint of the selected building.");
       }
@@ -713,11 +718,7 @@ export class Game {
   }
 
   private ensureStructureSelection() {
-    if (this.availableStructures.length === 0) {
-      this.selectedStructureType = null;
-      return;
-    }
-    if (!this.selectedStructureType || !this.availableStructures.includes(this.selectedStructureType)) {
+    if (!this.selectedStructureType && this.availableStructures.length > 0) {
       this.selectedStructureType = this.availableStructures[0] ?? null;
     }
   }
@@ -741,10 +742,7 @@ export class Game {
   }
 
   private updateStructureDetails() {
-    const hasOptions = this.availableStructures.length > 0;
-    if (!hasOptions) {
-      this.selectedStructureType = null;
-    }
+    const hasOptions = this.availableStructures.length > 0 || !!this.selectedStructureType;
     const disableCyclers = this.availableStructures.length <= 1;
     if (this.structurePrevButton) {
       this.structurePrevButton.disabled = disableCyclers;
@@ -759,9 +757,10 @@ export class Game {
       const structureType = button.dataset.structure as StructureType | undefined;
       if (!structureType) return;
 
-      // Enable/disable based on availability
       const isAvailable = this.availableStructures.includes(structureType);
-      button.disabled = !isAvailable;
+      button.disabled = false;
+      button.classList.toggle("locked", !isAvailable);
+      button.setAttribute("aria-disabled", isAvailable ? "false" : "true");
 
       // Add/remove selected class
       const isSelected = structureType === this.selectedStructureType;
@@ -795,6 +794,9 @@ export class Game {
     }
 
     const definition = getStructureDefinition(this.selectedStructureType);
+    const isSelectedAvailable = this.selectedStructureType
+      ? this.availableStructures.includes(this.selectedStructureType)
+      : false;
     if (this.structureLabel) {
       if (definition) {
         this.structureLabel.textContent = `${definition.icon} ${definition.displayName}`;
@@ -803,7 +805,9 @@ export class Game {
       }
     }
     if (this.structureStatusLabel) {
-      this.structureStatusLabel.textContent = "Click on the map to plan this building.";
+      this.structureStatusLabel.textContent = isSelectedAvailable
+        ? "Click on the map to plan this building."
+        : "Locked: meet requirements to plan this building.";
     }
     if (this.buildDetailsContainer) {
       this.buildDetailsContainer.hidden = !definition;
@@ -870,15 +874,19 @@ export class Game {
       return;
     }
     if (!this.selectedStructureType) {
-      this.updatePlanningHint("No buildings unlocked yet.");
+      const message = "No buildings unlocked yet.";
+      this.hud.updateStatus(message);
+      this.updatePlanningHint(message);
+      this.clearPlanningMode();
       return;
     }
     const result = this.simulation.planConstruction(this.selectedStructureType, cell);
-    if (!result.ok) {
-      this.updatePlanningHint(result.reason ?? "Could not place blueprint here.");
-    } else {
-      this.updatePlanningHint(`Blueprint placed at (${cell.x}, ${cell.y}).`);
-    }
+    const message = result.ok
+      ? `Blueprint placed at (${cell.x}, ${cell.y}).`
+      : result.reason ?? "Could not place blueprint here.";
+    this.hud.updateStatus(message);
+    this.updatePlanningHint(message);
+    this.clearPlanningMode();
   }
 
   private planningCellKey(cell: Vec2) {
@@ -1333,6 +1341,10 @@ export class Game {
       this.planningStrokeActive = false;
       this.planningStrokeCells.clear();
     }
+
+    if (this.planningPriority && this.planningPriority !== "build") {
+      this.clearPlanningMode();
+    }
   };
 
   private handleTouchCancel = () => {
@@ -1494,6 +1506,9 @@ export class Game {
     if (event.button === 0 && this.planningStrokeActive) {
       this.planningStrokeActive = false;
       this.planningStrokeCells.clear();
+      if (this.planningPriority && this.planningPriority !== "build") {
+        this.clearPlanningMode();
+      }
     }
     if (event.button === 1) {
       this.camera.stopPanning();
