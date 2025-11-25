@@ -35,8 +35,8 @@ export class HUDController {
     if (this.hudFaith) {
       const perHour = snapshot.faith.perHour;
       const trend = perHour > 0.01 ? "⬆️" : perHour < -0.01 ? "⬇️" : "➡️";
-      this.hudFaith.textContent = `${Math.floor(snapshot.faith.value)} Fe ${trend}`;
-      this.hudFaith.setAttribute("title", `Fe +${perHour.toFixed(2)}/h`);
+      this.hudFaith.textContent = `${Math.floor(snapshot.faith.value)} Faith ${trend}`;
+      this.hudFaith.setAttribute("title", `Faith +${perHour.toFixed(2)}/h`);
     }
 
     if (this.hudToken1) {
@@ -48,18 +48,18 @@ export class HUDController {
     }
     if (this.hudPopulation) {
       const arrow = snapshot.population.trend > 0.1 ? "⬆️" : snapshot.population.trend < -0.1 ? "⬇️" : "➡️";
-      this.hudPopulation.textContent = `${snapshot.population.value} habitantes ${arrow}`;
+      this.hudPopulation.textContent = `${snapshot.population.value} inhabitants ${arrow}`;
     }
 
     if (this.hudClimate) {
       let icon = "⛅";
-      let label = "Clima templado";
+      let label = "Temperate climate";
       if (snapshot.climate.drought) {
         icon = "🌵";
-        label = "Sequía";
+        label = "Drought";
       } else if (snapshot.climate.rainy) {
         icon = "🌧️";
-        label = "Lluvia";
+        label = "Rainy";
       }
       this.hudClimate.textContent = `${icon} ${label}`;
       this.hudClimate.setAttribute("title", label);
@@ -130,7 +130,7 @@ export class HUDController {
 
   setPauseButtonState(running: boolean) {
     if (this.pauseButton) {
-      this.pauseButton.textContent = running ? "⏸️ Pausar" : "▶️ Reanudar";
+      this.pauseButton.textContent = running ? "⏸️ Pause" : "▶️ Resume";
     }
   }
 
@@ -143,13 +143,13 @@ export class HUDController {
     if (!this.overlay) return;
     this.overlay.innerHTML = `
       <div>
-        <h1>Espíritu Guardián</h1>
-        <p>Panel "Planificación" o teclas F/M/G/B para marcar cultivos, minas, recolección o construcción (usa [ y ] para cambiar edificio).</p>
-        <p>Haz clic izquierdo sobre el mapa para pintar o colocar planos; arrastra para cubrir varias celdas.</p>
-        <p>Rueda sobre el mapa o usa los botones +/- para acercar o alejar.</p>
-        <p>Mantén el click medio y arrastra para desplazar la cámara.</p>
-        <p>Observa el HUD para población, clima y recursos. Mantén viva la tribu.</p>
-        <p>Presiona Enter para comenzar.</p>
+        <h1>Guardian Spirit</h1>
+        <p>Use the "Planning" panel or keys F/M/G/B to mark crops, mines, gathering, or construction (use [ and ] to change the building).</p>
+        <p>Left-click on the map to paint or place blueprints; drag to cover multiple cells.</p>
+        <p>Scroll on the map or use the +/- buttons to zoom in or out.</p>
+        <p>Hold the middle mouse button and drag to move the camera.</p>
+        <p>Watch the HUD for population, climate, and resources. Keep the tribe alive.</p>
+        <p>Press Enter to start.</p>
       </div>
     `;
 

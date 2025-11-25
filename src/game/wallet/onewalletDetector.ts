@@ -1,28 +1,28 @@
 /**
  * OneWallet Detector - Wallet Standard Implementation
- * 
- * Detecta y maneja la conexión con OneWallet usando el estándar oficial
- * de wallets compatible con Sui/OneChain
+ *
+ * Detects and manages connection with OneWallet using the official
+ * wallet standard compatible with Sui/OneChain
  */
 
 import { getWallets } from '@mysten/wallet-standard';
 import type { Wallet } from '@mysten/wallet-standard';
 
 /**
- * Busca OneWallet entre las wallets disponibles en el navegador
- * que cumplen con el Wallet Standard
- * 
- * @returns La instancia de OneWallet o null si no está instalada
+ * Searches for OneWallet among the wallets available in the browser
+ * that comply with the Wallet Standard
+ *
+ * @returns The OneWallet instance or null if not installed
  */
 export function findOneWallet(): Wallet | null {
-  const wallets = getWallets().get(); // Lista de wallets compatibles con Wallet Standard
+  const wallets = getWallets().get(); // List of wallets compatible with Wallet Standard
   
-  // Debug: ver qué wallets están disponibles
+  // Debug: see which wallets are available
   if (wallets.length > 0) {
-    console.log('Wallets detectadas:', wallets.map(w => w.name));
+    console.log('Wallets detected:', wallets.map(w => w.name));
   }
   
-  // Buscar OneWallet por nombre (ajustar según el nombre real en runtime)
+  // Search for OneWallet by name (adjust as needed for runtime name)
   const oneWallet = wallets.find((w) =>
     w.name.toLowerCase().includes('onewallet') ||
     w.name.toLowerCase().includes('one wallet') ||
@@ -30,24 +30,24 @@ export function findOneWallet(): Wallet | null {
   );
   
   if (oneWallet) {
-    console.log('✅ OneWallet detectada:', oneWallet.name, oneWallet.version);
+    console.log('✅ OneWallet detected:', oneWallet.name, oneWallet.version);
   } else {
-    console.warn('⚠️ OneWallet no detectada. Wallets disponibles:', wallets.map(w => w.name));
+    console.warn('⚠️ OneWallet not detected. Available wallets:', wallets.map(w => w.name));
   }
   
   return oneWallet ?? null;
 }
 
 /**
- * Verifica si OneWallet está instalada en el navegador
+ * Checks if OneWallet is installed in the browser
  */
 export function isOneWalletInstalled(): boolean {
   return findOneWallet() !== null;
 }
 
 /**
- * Obtiene la lista completa de wallets compatibles con Wallet Standard
- * Útil para debugging o mostrar opciones al usuario
+ * Gets the full list of wallets compatible with Wallet Standard
+ * Useful for debugging or showing options to the user
  */
 export function getAllWallets(): readonly Wallet[] {
   return getWallets().get();
