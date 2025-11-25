@@ -1,0 +1,34 @@
+# Wallet y keys privadas
+.env.wallet
+wallet-info.json
+*.key
+*.pem
+
+# Build artifacts
+build/
+.move/
+
+# Node modules
+node_modules/
+package-lock.json
+yarn.lock
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Deployment info (comentar si quieres trackear)
+deployment-info.json

@@ -1,0 +1,30 @@
+{
+  "name": "theron-onechain-contracts",
+  "version": "0.0.1",
+  "description": "Smart contracts for Theron game on OneChain",
+  "type": "module",
+  "scripts": {
+    "setup": "node setup-wallet.js",
+    "refund": "node refund-wallet.js",
+    "fund": "node fund-direct.js",
+    "fund-ps": "node fund-powershell.js",
+    "balance": "node check-balance.js",
+    "balance-full": "node check-balance-detailed.js",
+    "deploy": "node deploy-sdk.mjs",
+    "compile": "one move build",
+    "publish": "one client publish --gas-budget 100000000"
+  },
+  "keywords": [
+    "onechain",
+    "move",
+    "smart-contracts",
+    "blockchain",
+    "game"
+  ],
+  "author": "Theron Game Team",
+  "license": "MIT",
+  "dependencies": {
+    "@mysten/sui": "^1.45.0",
+    "@onelabs/sui": "^1.0.0"
+  }
+}
