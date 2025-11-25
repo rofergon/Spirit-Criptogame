@@ -71,9 +71,9 @@ export class CitizenControlPanelController {
         const moralePct = Math.floor(c.morale);
 
         if (this.roleIconEl) this.roleIconEl.textContent = roleIcon;
-        if (this.nameLabelEl) this.nameLabelEl.textContent = `Aldeano #${c.id} `;
+        if (this.nameLabelEl) this.nameLabelEl.textContent = `Villager #${c.id} `;
         if (this.stateEl) this.stateEl.textContent = stateIcon;
-        if (this.roleEl) this.roleEl.textContent = `${roleLabel} · ${Math.floor(c.age)} años`;
+        if (this.roleEl) this.roleEl.textContent = `${roleLabel} · ${Math.floor(c.age)} years`;
 
         this.updateStatBar(this.statFills.health, healthPct, "#e53935");
         this.updateStatBar(this.statFills.hunger, hungerPct, "#fb8c00");
@@ -142,7 +142,7 @@ export class CitizenControlPanelController {
 
         const closeBtn = document.createElement("button");
         closeBtn.className = "panel-close-btn";
-        closeBtn.title = "Cerrar panel";
+        closeBtn.title = "Close panel";
         closeBtn.textContent = "✕";
         closeBtn.addEventListener("click", () => this.hide());
 
@@ -171,10 +171,10 @@ export class CitizenControlPanelController {
             this.statFills[key] = fill;
         };
 
-        makeStat("Salud", "❤️", "health");
-        makeStat("Hambre", "🍖", "hunger");
-        makeStat("Energía", "⚡", "energy");
-        makeStat("Moral", "😊", "morale");
+        makeStat("Health", "❤️", "health");
+        makeStat("Hunger", "🍖", "hunger");
+        makeStat("Energy", "⚡", "energy");
+        makeStat("Morale", "😊", "morale");
 
         const inventory = document.createElement("div");
         inventory.className = "panel-inventory";
@@ -193,15 +193,15 @@ export class CitizenControlPanelController {
             setter(valueSpan);
         };
 
-        makeInv("Comida", "🌾", (el) => (this.invFoodEl = el));
-        makeInv("Piedra", "🪨", (el) => (this.invStoneEl = el));
-        makeInv("Madera", "🌲", (el) => (this.invWoodEl = el));
+        makeInv("Food", "🌾", (el) => (this.invFoodEl = el));
+        makeInv("Stone", "🪨", (el) => (this.invStoneEl = el));
+        makeInv("Wood", "🌲", (el) => (this.invWoodEl = el));
 
         const action = document.createElement("div");
         action.className = "panel-action";
         const actionLabel = document.createElement("div");
         actionLabel.className = "action-label";
-        actionLabel.textContent = "Actividad actual:";
+        actionLabel.textContent = "Current activity:";
         this.actionTextEl = document.createElement("div");
         this.actionTextEl.className = "action-text";
         action.appendChild(actionLabel);
@@ -236,55 +236,55 @@ export class CitizenControlPanelController {
                 // Parse common action signatures to friendly text
                 if (actionDesc.startsWith("gather:")) {
                     const resource = actionDesc.split(":")[1];
-                    return `Recolectando ${this.translateResource(resource || "")}`;
+                    return `Gathering ${this.translateResource(resource || "")}`;
                 } else if (actionDesc.startsWith("tend:")) {
-                    return "Cultivando";
+                    return "Tending crops";
                 } else if (actionDesc === "store") {
-                    return "Almacenando recursos";
+                    return "Storing resources";
                 } else if (actionDesc === "rest") {
-                    return "Descansando";
+                    return "Resting";
                 } else if (actionDesc === "idle") {
-                    return "Inactivo";
+                    return "Idle";
                 } else if (actionDesc.startsWith("move:")) {
-                    return "En movimiento";
+                    return "Moving";
                 } else if (actionDesc.startsWith("attack:")) {
-                    return "Combatiendo";
+                    return "Fighting";
                 } else if (actionDesc.startsWith("mate:")) {
-                    return "Buscando pareja";
+                    return "Looking for mate";
                 } else if (actionDesc.startsWith("construct:")) {
-                    return "Construyendo";
+                    return "Constructing";
                 }
             }
         }
 
         // Fallback to currentGoal
         if (citizen.currentGoal) {
-            if (citizen.currentGoal === "resting") return "Descansando";
-            if (citizen.currentGoal === "passive") return "Pasivo";
+            if (citizen.currentGoal === "resting") return "Resting";
+            if (citizen.currentGoal === "passive") return "Passive";
             return citizen.currentGoal;
         }
 
-        return "Inactivo";
+        return "Idle";
     }
 
     private translateResource(resource: string): string {
         const translations: Record<string, string> = {
-            food: "comida",
-            stone: "piedra",
-            wood: "madera",
-            water: "agua",
+            food: "food",
+            stone: "stone",
+            wood: "wood",
+            water: "water",
         };
         return translations[resource] || resource;
     }
 
     private getRoleLabel(role: Citizen["role"]): string {
         const labels: Record<Citizen["role"], string> = {
-            worker: "Trabajador",
-            farmer: "Granjero",
-            warrior: "Guerrero",
-            scout: "Explorador",
-            child: "Niño",
-            elder: "Anciano",
+            worker: "Worker",
+            farmer: "Farmer",
+            warrior: "Warrior",
+            scout: "Scout",
+            child: "Child",
+            elder: "Elder",
         };
         return labels[role] || role;
     }

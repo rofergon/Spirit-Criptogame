@@ -37,13 +37,12 @@ const ensureSharedTextures = (cacheTag: string): TextureResources => {
   }
 
   const textures: Record<string, HTMLImageElement[]> = {};
-
-  // Terrenos con texturas simples (sin variantes múltiples)
+  // Terrains with simple textures (no multiple variants)
   ["snow", "tundra"].forEach((terrain) => {
     textures[terrain] = [loadImage(`/assets/textures/${terrain}.png${cacheTag}`, terrain)];
   });
 
-  // Terrenos con múltiples variantes (incluyendo ocean)
+  // Terrains with multiple variants (including ocean)
   const variantTerrains = [
     { name: "grassland", folder: "extracted_grass_hexes", prefix: "grass_hex_c26606bc-1358-490f-9219-970fc0a664c2 (1)" },
     { name: "forest", folder: "extracted_forest_hexes", prefix: "forest_hex_Forest" },
@@ -119,7 +118,7 @@ export class GameRenderer {
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      throw new Error("No se pudo obtener el contexto 2D.");
+      throw new Error("Could not get 2D context.");
     }
     this.ctx = ctx;
     this.cacheTag = this.getCacheTag();
@@ -280,7 +279,7 @@ export class GameRenderer {
     const textureVariants = this.textures[terrain];
 
     if (textureVariants && textureVariants.length > 0) {
-      // Seleccionar una variante basada en las coordenadas de la celda
+      // Select a variant based on cell coordinates
       const variantIndex = this.getTerrainVariantIndex(cell, terrain, textureVariants.length);
       const texture = textureVariants[variantIndex];
 
@@ -418,8 +417,8 @@ export class GameRenderer {
     const ctx = this.ctx;
     ctx.save();
 
-    // Usar la relación de aspecto geométrica del hexágono Pointy Top
-    // Alto / Ancho = 2 / sqrt(3) ≈ 1.1547
+    // Use the geometric aspect ratio of the Pointy Top hexagon
+    // Height / Width = 2 / sqrt(3) ≈ 1.1547
     const aspectRatio = 1.1547;
 
     const frameWidth = hex.size * 1.75; // Ajustado para encajar
@@ -715,8 +714,8 @@ export class GameRenderer {
       site.stoneDelivered >= site.stoneRequired &&
       site.woodDelivered >= site.woodRequired;
 
-    // Dibujar icono según la fase
-    let icon = "📦"; // Materiales pendientes
+    // Draw icon according to phase
+    let icon = "📦"; // Pending materials
     let color = "#94a3b8";
 
     if (materialsComplete) {
@@ -732,7 +731,7 @@ export class GameRenderer {
       }
     }
 
-    // Dibujar icono
+    // Draw icon
     const constructionTextures = this.textures["construction_site"];
     if (constructionTextures && constructionTextures.length > 0) {
       const texture = constructionTextures[0];
@@ -755,11 +754,11 @@ export class GameRenderer {
       ctx.fillText(icon, center.x, center.y - hex.size * 0.2);
     }
 
-    // Dibujar barra de progreso
+    // Draw progress bar
     const pct = site.workRequired > 0 ? clamp(site.workDone / site.workRequired, 0, 1) : 0;
     this.drawProgressOverlay(center, hex, pct, color);
 
-    // Si faltan materiales, mostrar info
+    // If materials are missing, show info
     if (!materialsComplete) {
       ctx.font = `${hex.size * 0.25}px sans-serif`;
       ctx.fillStyle = "white";
@@ -854,16 +853,16 @@ export class GameRenderer {
     ctx.font = "bold 11px Arial";
     ctx.fillStyle = "#f0e7dc";
     ctx.textAlign = "left";
-    ctx.fillText("LEYENDA", x + 8, y + 15);
+    ctx.fillText("LEGEND", x + 8, y + 15);
 
     const items = [
-      { icon: "🔨", label: "Trabajador" },
-      { icon: "👨‍🌾", label: "Granjero" },
-      { icon: "⚔️", label: "Guerrero" },
-      { icon: "🔍", label: "Explorador" },
-      { icon: "🌾", label: "Comida" },
-      { icon: "🪨", label: "Piedra" },
-      { icon: "🏛️", label: "Aldea" },
+      { icon: "🔨", label: "Worker" },
+      { icon: "👨‍🌾", label: "Farmer" },
+      { icon: "⚔️", label: "Warrior" },
+      { icon: "🔍", label: "Scout" },
+      { icon: "🌾", label: "Food" },
+      { icon: "🪨", label: "Stone" },
+      { icon: "🏛️", label: "Village" },
     ];
 
     ctx.font = "10px Arial";

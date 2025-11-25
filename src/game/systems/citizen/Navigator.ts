@@ -233,12 +233,12 @@ export class Navigator {
 
     // Fatigue cost per terrain type
     const terrainCost: Partial<Record<Terrain, number>> = {
-      mountain: 2.0,  // Doble fatiga en montañas
-      river: 1.5,     // 50% más fatiga en ríos
-      swamp: 1.3,     // 30% más fatiga en pantanos
+      mountain: 2.0,  // Double fatigue in mountains
+      river: 1.5,     // 50% more fatigue in rivers
+      swamp: 1.3,     // 30% more fatigue in swamps
     };
 
-    const baseFatigue = 0.5; // Fatiga base por movimiento
+    const baseFatigue = 0.5; // Base fatigue per movement
     const multiplier = terrainCost[cell.terrain] ?? 1.0;
     const fatigueCost = baseFatigue * multiplier;
 
