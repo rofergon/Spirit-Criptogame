@@ -109,6 +109,13 @@ export class Game {
   private pinchStartDistance: number | null = null;
   private pinchStartZoom: number | null = null;
   private isTouchPanning = false;
+  private lastAdjustedRole: AssignableRole | null = null;
+  private roleTargets: Record<AssignableRole, number> = {
+    farmer: 0,
+    worker: 0,
+    warrior: 0,
+    scout: 0,
+  };
 
   constructor(private canvas: HTMLCanvasElement) {
     this.mobileMediaQuery = window.matchMedia("(max-width: 900px)");
@@ -455,10 +462,21 @@ export class Game {
     };
 
     for (const role of this.assignableRoles) {
-      this.roleControls[role].input?.addEventListener("input", this.handleRoleSliderInput);
+      const control = this.roleControls[role];
+      if (control.input) {
+        control.input.dataset.role = role;
+        control.input.addEventListener("input", this.handleRoleSliderInput);
+      }
     }
 
     this.devoteeControl.input?.addEventListener("input", this.handleDevoteeSliderInput);
+
+    // Prime targets with the initial slider values so the UI reflects user intent, not current assignments.
+    for (const role of this.assignableRoles) {
+      const control = this.roleControls[role];
+      const initial = Number.parseInt(control.input?.value ?? "0", 10);
+      this.roleTargets[role] = Number.isFinite(initial) ? Math.max(0, initial) : 0;
+    }
 
     this.updateRoleControls(true);
   }
@@ -555,14 +573,38 @@ export class Game {
     this.tokenModalBackdrop?.addEventListener("click", this.closeTokenModal);
   }
 
-  private handleRoleSliderInput = () => {
+  private handleRoleSliderInput = (event: Event) => {
     if (!this.gameInitialized || !this.simulation) {
       return;
     }
-    const targets = this.collectRoleTargets();
-    this.simulation.getCitizenSystem().rebalanceRoles(targets, this.playerTribeId);
+    const role = this.getRoleFromEvent(event);
+    if (role) {
+      this.lastAdjustedRole = role;
+      const targetInput = event.target as HTMLInputElement | null;
+      const rawValue = targetInput ? Number.parseInt(targetInput.value ?? "0", 10) : 0;
+      this.roleTargets[role] = Number.isFinite(rawValue) ? Math.max(0, rawValue) : 0;
+    }
+    const assignable = this.simulation.getCitizenSystem().getAssignablePopulationCount(this.playerTribeId, true);
+    const normalized = this.normalizeRoleTargets(this.roleTargets, assignable, this.lastAdjustedRole ?? undefined);
+    this.roleTargets = normalized;
+    const finalTargets = this.simulation
+      .getCitizenSystem()
+      .rebalanceRoles(normalized, this.playerTribeId, this.lastAdjustedRole ?? undefined);
+    this.roleTargets = finalTargets;
     this.updateRoleControls(true);
   };
+
+  private getRoleFromEvent(event: Event): AssignableRole | null {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return null;
+    }
+    const datasetRole = target.dataset.role as AssignableRole | undefined;
+    if (datasetRole && this.assignableRoles.includes(datasetRole)) {
+      return datasetRole;
+    }
+    return this.assignableRoles.find((role) => this.roleControls[role].input === target) ?? null;
+  }
 
   private handleDevoteeSliderInput = () => {
     if (!this.simulation) {
@@ -588,18 +630,81 @@ export class Game {
   };
 
   private collectRoleTargets() {
-    const targets: Record<AssignableRole, number> = {
+    return { ...this.roleTargets };
+  }
+
+  private normalizeRoleTargets(
+    targets: Record<AssignableRole, number>,
+    available: number,
+    priorityRole?: AssignableRole | null,
+  ): Record<AssignableRole, number> {
+    const normalized: Record<AssignableRole, number> = {
+      farmer: Math.max(0, Math.floor(targets.farmer ?? 0)),
+      worker: Math.max(0, Math.floor(targets.worker ?? 0)),
+      warrior: Math.max(0, Math.floor(targets.warrior ?? 0)),
+      scout: Math.max(0, Math.floor(targets.scout ?? 0)),
+    };
+
+    if (available <= 0) {
+      return { farmer: 0, worker: 0, warrior: 0, scout: 0 };
+    }
+
+    const totalRequested = Object.values(normalized).reduce((sum, value) => sum + value, 0);
+    if (totalRequested <= available) {
+      return normalized;
+    }
+
+    const finalTargets: Record<AssignableRole, number> = {
       farmer: 0,
       worker: 0,
       warrior: 0,
       scout: 0,
     };
-    for (const role of this.assignableRoles) {
-      const input = this.roleControls[role].input;
-      const value = input ? Number.parseInt(input.value, 10) : 0;
-      targets[role] = Number.isNaN(value) ? 0 : Math.max(0, value);
+
+    if (priorityRole && this.assignableRoles.includes(priorityRole)) {
+      // Keep the last-adjusted role intact, scale the rest to fit.
+      finalTargets[priorityRole] = Math.min(normalized[priorityRole], available);
+      const remainingSlots = Math.max(available - finalTargets[priorityRole], 0);
+      const otherRoles = this.assignableRoles.filter((role) => role !== priorityRole);
+      const requestedOthers = otherRoles.reduce((sum, role) => sum + normalized[role], 0);
+
+      if (remainingSlots > 0 && requestedOthers > 0) {
+        const scale = remainingSlots / requestedOthers;
+        let assigned = finalTargets[priorityRole];
+
+        for (const role of otherRoles) {
+          finalTargets[role] = Math.floor(normalized[role] * scale);
+          assigned += finalTargets[role];
+        }
+
+        for (const role of otherRoles) {
+          if (assigned >= available) break;
+          if (finalTargets[role] < normalized[role]) {
+            finalTargets[role] += 1;
+            assigned += 1;
+          }
+        }
+      }
+
+      return finalTargets;
     }
-    return targets;
+
+    const scale = available / totalRequested;
+    let assigned = 0;
+    for (const role of this.assignableRoles) {
+      finalTargets[role] = Math.floor(normalized[role] * scale);
+      assigned += finalTargets[role];
+    }
+
+    for (const role of this.assignableRoles) {
+      if (assigned >= available) break;
+      if (finalTargets[role] < normalized[role]) {
+        finalTargets[role] += 1;
+        assigned += 1;
+      }
+    }
+
+    return finalTargets;
   }
 
   private togglePlanningMode(mode: PlanningMode) {
@@ -935,16 +1040,20 @@ export class Game {
     }
     const citizenSystem = this.simulation.getCitizenSystem();
     const assignable = citizenSystem.getAssignablePopulationCount(this.playerTribeId, true);
-    const counts = citizenSystem.getRoleCounts(this.playerTribeId, true);
+    this.roleTargets = this.normalizeRoleTargets(this.roleTargets, assignable, this.lastAdjustedRole);
     for (const role of this.assignableRoles) {
       const control = this.roleControls[role];
+      const currentTarget = Number.isFinite(this.roleTargets[role]) ? this.roleTargets[role] : 0;
+      const clampedTarget = Math.max(0, Math.min(currentTarget, assignable));
+      this.roleTargets[role] = clampedTarget;
+
       if (control.value) {
-        control.value.textContent = counts[role]?.toString() ?? "0";
+        control.value.textContent = clampedTarget.toString();
       }
       if (control.input) {
         control.input.max = Math.max(assignable, 0).toString();
         if (force || document.activeElement !== control.input) {
-          control.input.value = counts[role]?.toString() ?? "0";
+          control.input.value = clampedTarget.toString();
         }
       }
     }
@@ -1026,9 +1135,9 @@ export class Game {
       if (faith <= 0) {
         this.tokenModalStatus.textContent = "No stored Faith to convert.";
       } else if (!isWalletConnected()) {
-        this.tokenModalStatus.textContent = "Conecta tu OneWallet para convertir Faith a HEX en blockchain.";
+        this.tokenModalStatus.textContent = "Connect your OneWallet to convert Faith to HEX on-chain.";
       } else {
-        this.tokenModalStatus.textContent = "Convierte tu Faith a HEX tokens en OneChain.";
+        this.tokenModalStatus.textContent = "Convert your Faith to HEX tokens on OneChain.";
       }
     }
   }
@@ -1065,19 +1174,19 @@ export class Game {
     // Verificar si la wallet está conectada
     if (!isWalletConnected()) {
       if (this.tokenModalStatus) {
-        this.tokenModalStatus.textContent = "Conectando wallet...";
+        this.tokenModalStatus.textContent = "Connecting wallet...";
       }
       
       const connection = await connectOneWallet();
       if (!connection.success) {
         if (this.tokenModalStatus) {
-          this.tokenModalStatus.textContent = connection.error || "Error al conectar wallet";
+          this.tokenModalStatus.textContent = connection.error || "Error connecting wallet";
         }
-        this.hud.showNotification("No se pudo conectar la wallet", "critical");
+        this.hud.showNotification("Could not connect wallet", "critical");
         return;
       }
       
-      this.hud.showNotification("Wallet conectada exitosamente", "success");
+      this.hud.showNotification("Wallet connected successfully", "success");
       await this.refreshOnChainBalances();
     }
 
@@ -1085,14 +1194,14 @@ export class Game {
     const updateModalStatus = (status: TransactionStatus, message?: string) => {
       if (this.tokenModalStatus) {
         const statusMessages: Record<TransactionStatus, string> = {
-          'idle': 'Preparando...',
-          'connecting-wallet': 'Conectando wallet...',
-          'building-transaction': 'Preparando transacción...',
-          'signing': '✍️ Por favor firma la transacción en tu OneWallet',
-          'executing': '⏳ Ejecutando transacción en OneChain...',
-          'confirming': '🔄 Confirmando...',
-          'success': '✅ ¡Conversión exitosa!',
-          'error': '❌ Error en la transacción',
+          'idle': 'Preparing...',
+          'connecting-wallet': 'Connecting wallet...',
+          'building-transaction': 'Preparing transaction...',
+          'signing': '✍️ Please sign the transaction in OneWallet',
+          'executing': '⏳ Executing transaction on OneChain...',
+          'confirming': '🔄 Confirming...',
+          'success': '✅ Conversion successful!',
+          'error': '❌ Transaction error',
         };
         this.tokenModalStatus.textContent = message || statusMessages[status];
       }

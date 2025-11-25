@@ -116,6 +116,7 @@ export interface Citizen {
   unreachableCooldown?: number;
   pendingRoleChange?: Role;
   activeTask?: "gather" | "construct" | "tendCrops" | "attack" | "mate";
+  forceStore?: boolean;
 }
 
 export interface WorldView {

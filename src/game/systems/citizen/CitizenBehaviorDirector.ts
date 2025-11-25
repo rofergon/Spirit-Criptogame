@@ -79,6 +79,21 @@ export class CitizenBehaviorDirector {
       }
     }
 
+    // After forced role reassignment, ensure any carried resources are dropped off first
+    if (citizen.forceStore && activeGatherEngine) {
+      const hasCargo = citizen.carrying.food > 0 || citizen.carrying.stone > 0 || citizen.carrying.wood > 0;
+      if (!hasCargo) {
+        delete citizen.forceStore;
+      } else {
+        const target = activeGatherEngine.findStorageTarget(citizen, view);
+        const atStorage = citizen.x === target.x && citizen.y === target.y;
+        if (atStorage) {
+          return { type: "storeResources" };
+        }
+        return { type: "move", x: target.x, y: target.y };
+      }
+    }
+
     if (citizen.role === "child" && citizen.age > 12) {
       citizen.role = "worker";
       this.hooks.emit({ type: "log", message: `Citizen ${citizen.id} has grown up and will work.` });

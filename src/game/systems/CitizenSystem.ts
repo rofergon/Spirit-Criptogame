@@ -216,11 +216,16 @@ export class CitizenSystem {
     return counts;
   }
 
-  rebalanceRoles(targets: Partial<Record<AssignableRole, number>>, tribeId?: number) {
+  rebalanceRoles(
+    targets: Partial<Record<AssignableRole, number>>,
+    tribeId?: number,
+    priorityRole?: AssignableRole,
+  ): Record<AssignableRole, number> {
+    const emptyTargets: Record<AssignableRole, number> = { farmer: 0, worker: 0, warrior: 0, scout: 0 };
     const pool = this.repository
       .getAssignableCitizens(tribeId)
       .filter((citizen) => !this.devoteeAssignments.has(citizen.id));
-    if (pool.length === 0) return;
+    if (pool.length === 0) return emptyTargets;
 
     // Normalize targets to ensure we have a value for each role
     const normalizedTargets: Record<AssignableRole, number> = {
@@ -232,21 +237,58 @@ export class CitizenSystem {
 
     // Calculate total requested
     const totalRequested = Object.values(normalizedTargets).reduce((sum, count) => sum + count, 0);
+    const totalAvailable = pool.length;
 
     // If total requested exceeds pool, we need to scale down proportionally
     let finalTargets = { ...normalizedTargets };
-    if (totalRequested > pool.length) {
-      const scale = pool.length / totalRequested;
-      for (const role of ASSIGNABLE_ROLES) {
-        finalTargets[role] = Math.floor(normalizedTargets[role] * scale);
-      }
-      // Distribute remaining slots to maintain total
-      let assigned = Object.values(finalTargets).reduce((sum, count) => sum + count, 0);
-      for (const role of ASSIGNABLE_ROLES) {
-        if (assigned >= pool.length) break;
-        if (normalizedTargets[role] > finalTargets[role]) {
-          finalTargets[role]++;
-          assigned++;
+    if (totalRequested > totalAvailable) {
+      if (priorityRole && ASSIGNABLE_ROLES.includes(priorityRole)) {
+        // Keep the most recently adjusted slider fixed and scale the remaining roles to fit.
+        const priorityTarget = Math.min(normalizedTargets[priorityRole], totalAvailable);
+        const remainingSlots = Math.max(totalAvailable - priorityTarget, 0);
+        const otherRoles = ASSIGNABLE_ROLES.filter((role) => role !== priorityRole);
+        const requestedOthers = otherRoles.reduce((sum, role) => sum + normalizedTargets[role], 0);
+
+        const scaledTargets: Record<AssignableRole, number> = {
+          farmer: 0,
+          worker: 0,
+          warrior: 0,
+          scout: 0,
+        };
+        scaledTargets[priorityRole] = priorityTarget;
+
+        if (remainingSlots > 0 && requestedOthers > 0) {
+          const scale = remainingSlots / requestedOthers;
+          let assigned = priorityTarget;
+
+          for (const role of otherRoles) {
+            scaledTargets[role] = Math.floor(normalizedTargets[role] * scale);
+            assigned += scaledTargets[role];
+          }
+
+          for (const role of otherRoles) {
+            if (assigned >= totalAvailable) break;
+            if (scaledTargets[role] < normalizedTargets[role]) {
+              scaledTargets[role] += 1;
+              assigned += 1;
+            }
+          }
+        }
+
+        finalTargets = scaledTargets;
+      } else {
+        const scale = totalAvailable / totalRequested;
+        for (const role of ASSIGNABLE_ROLES) {
+          finalTargets[role] = Math.floor(normalizedTargets[role] * scale);
+        }
+        // Distribute remaining slots to maintain total
+        let assigned = Object.values(finalTargets).reduce((sum, count) => sum + count, 0);
+        for (const role of ASSIGNABLE_ROLES) {
+          if (assigned >= totalAvailable) break;
+          if (normalizedTargets[role] > finalTargets[role]) {
+            finalTargets[role]++;
+            assigned++;
+          }
         }
       }
     }
@@ -276,27 +318,34 @@ export class CitizenSystem {
     const unassigned = pool.filter(c => !assignments.has(c.id));
     unassigned.forEach(c => assignments.set(c.id, "worker"));
 
-    // Apply assignments, respecting busy status
+    // Apply assignments immediately, interrupting any ongoing tasks for reassigned citizens
     for (const citizen of pool) {
       const targetRole = assignments.get(citizen.id);
-      if (!targetRole || targetRole === citizen.role) {
-        // Clear any pending role change if the target matches current role
+      if (!targetRole) {
         if (citizen.pendingRoleChange) {
           delete citizen.pendingRoleChange;
         }
         continue;
       }
 
-      // Check if citizen is busy with an active task
-      if (this.isCitizenBusy(citizen)) {
-        // Defer the role change until the task is complete
-        citizen.pendingRoleChange = targetRole;
-      } else {
-        // Apply immediately if not busy
+      const roleChanged = citizen.role !== targetRole;
+      if (roleChanged) {
         citizen.role = targetRole;
-        delete citizen.pendingRoleChange;
+        delete citizen.activeTask;
+        delete citizen.currentGoal;
+        citizen.brain = undefined;
+      }
+      delete citizen.pendingRoleChange;
+
+      const hasCargo = citizen.carrying.food > 0 || citizen.carrying.stone > 0 || citizen.carrying.wood > 0;
+      if (roleChanged && hasCargo) {
+        citizen.forceStore = true;
+      } else if (!hasCargo) {
+        delete citizen.forceStore;
       }
     }
+
+    return finalTargets;
   }
 
   private isCitizenBusy(citizen: Citizen): boolean {
