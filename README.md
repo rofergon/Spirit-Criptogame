@@ -1,4 +1,4 @@
-# 🌟 Guardian Spirit – Tribal Simulation
+# 🌟 Theron The Legend of the hex lands – Tribal Simulation
 
 A tribal simulation where you guide and protect a growing village as its guardian spirit. Watch your people work, survive, and expand in a procedurally generated world with autonomous villagers, dynamic events, and buildable structures.
 
