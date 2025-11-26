@@ -37,6 +37,7 @@ export class WorldEngine {
   private readonly baseVisionRadius = 4;
   private readonly structureVisionRadius = 1;
   private readonly towerVisionRadius = 4;
+  private readonly citizenVisionRadius = 1;
   private readonly scoutVisionRadius = 2;
   private rng: () => number;
 
@@ -119,8 +120,9 @@ export class WorldEngine {
     citizens.forEach((citizen) => {
       if (citizen.state !== "alive") return;
       if (citizen.tribeId !== tribeId) return;
-      if (citizen.role !== "scout") return;
-      this.revealAround({ x: citizen.x, y: citizen.y }, this.scoutVisionRadius);
+      const isScout = citizen.role === "scout";
+      const radius = isScout ? this.scoutVisionRadius : this.citizenVisionRadius;
+      this.revealAround({ x: citizen.x, y: citizen.y }, radius);
     });
   }
 
