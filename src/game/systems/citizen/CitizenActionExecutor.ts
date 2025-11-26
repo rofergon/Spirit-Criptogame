@@ -53,7 +53,7 @@ export class CitizenActionExecutor {
         this.storeResources(citizen);
         break;
       case "rest":
-        citizen.fatigue = clamp(citizen.fatigue - 3 * tickHours, 0, 100);
+        citizen.fatigue = clamp(citizen.fatigue - 3 * 1.25 * tickHours, 0, 100);
         citizen.hunger = clamp(citizen.hunger - 0.5 * tickHours, 0, 100);
         citizen.morale = clamp(citizen.morale + 2 * tickHours, 0, 100);
         break;
