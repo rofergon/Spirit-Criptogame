@@ -34,6 +34,10 @@ export class WorldEngine {
   private pathFinder: PathFinder;
 
   private readonly worldSeed: number;
+  private readonly baseVisionRadius = 4;
+  private readonly structureVisionRadius = 1;
+  private readonly towerVisionRadius = 4;
+  private readonly scoutVisionRadius = 2;
   private rng: () => number;
 
   constructor(size = WORLD_SIZE, seed = Date.now()) {
@@ -51,6 +55,7 @@ export class WorldEngine {
     this.villageCenter = this.structureManager.placeVillageCenter();
     this.structureManager.buildStructure("village", this.villageCenter.x, this.villageCenter.y);
     this.structureManager.placeInitialStructures(this.villageCenter, (x, y) => this.isWalkable(x, y));
+    this.initializeVisibility();
   }
 
   citizenLookup?: (id: number) => Citizen | undefined;
@@ -88,6 +93,58 @@ export class WorldEngine {
     }
     toCell.inhabitants.push(citizenId);
     return true;
+  }
+
+  private initializeVisibility() {
+    this.cells.forEach((row) =>
+      row.forEach((cell) => {
+        cell.visibility = "hidden";
+      }),
+    );
+    this.revealAround(this.villageCenter, this.baseVisionRadius);
+  }
+
+  updateVisibility(citizens: Citizen[], tribeId: number) {
+    this.cells.forEach((row) =>
+      row.forEach((cell) => {
+        if (cell.visibility === "visible") {
+          cell.visibility = "discovered";
+        }
+      }),
+    );
+
+    this.revealAround(this.villageCenter, this.baseVisionRadius);
+    this.revealStructures();
+
+    citizens.forEach((citizen) => {
+      if (citizen.state !== "alive") return;
+      if (citizen.tribeId !== tribeId) return;
+      if (citizen.role !== "scout") return;
+      this.revealAround({ x: citizen.x, y: citizen.y }, this.scoutVisionRadius);
+    });
+  }
+
+  private revealStructures() {
+    const structures = this.structureManager.getStructures();
+    structures.forEach((structure) => {
+      const radius = structure.type === "tower" ? this.towerVisionRadius : this.structureVisionRadius;
+      this.revealAround({ x: structure.x, y: structure.y }, radius);
+    });
+  }
+
+  private revealAround(origin: Vec2, radius: number) {
+    const radiusSq = radius * radius;
+    for (let dy = -radius; dy <= radius; dy += 1) {
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        const x = origin.x + dx;
+        const y = origin.y + dy;
+        const cell = this.getCell(x, y);
+        if (!cell) continue;
+        const distanceSq = dx * dx + dy * dy;
+        if (distanceSq > radiusSq) continue;
+        cell.visibility = "visible";
+      }
+    }
   }
 
   findPath(start: Vec2, goal: Vec2, options?: { cacheKey?: string }): Vec2[] | null {

@@ -2,7 +2,7 @@ import { HOURS_PER_SECOND, PRIORITY_KEYMAP, TICK_HOURS, WORLD_SIZE } from "./cor
 import { InputHandler } from "./core/InputHandler";
 import { clamp } from "./core/utils";
 import type { Citizen, PriorityMark, Role, StructureType, ToastNotification, Vec2 } from "./core/types";
-import { SimulationSession } from "./core/SimulationSession";
+import { SimulationSession, type ThreatAlert } from "./core/SimulationSession";
 import { CameraController } from "./core/CameraController";
 import { HUDController, type HUDSnapshot } from "./ui/HUDController";
 import { CitizenPortraitBarController } from "./ui/CitizenPortraitBar";
@@ -13,8 +13,8 @@ import { CellTooltipController } from "./ui/CellTooltip";
 import { getStructureDefinition } from "./data/structures";
 import type { StructureRequirements } from "./data/structures";
 import { axialToOffset, createHexGeometry, getHexCenter, getHexWorldBounds, pixelToAxial, roundAxial } from "./ui/hexGrid";
-import { convertFaithToHex, type TransactionStatus, getOnChainBalances } from "./wallet/hexConversionService";
-import { isWalletConnected, connectOneWallet, getCurrentAccount } from "./wallet/walletConfig";
+import { convertFaithToHex, type TransactionStatus, getOnChainBalances, burnHexForRaidBlessing, type BurnResult } from "./wallet/hexConversionService";
+import { isWalletConnected, connectOneWallet, getCurrentAccount, getWalletInstance } from "./wallet/walletConfig";
 
 type AssignableRole = Extract<Role, "farmer" | "worker" | "warrior" | "scout">;
 type PlanningMode = "farm" | "mine" | "gather" | "build";
@@ -63,6 +63,16 @@ export class Game {
   private tokenModalRate = document.querySelector<HTMLSpanElement>("#token-modal-rate");
   private tokenModalStatus = document.querySelector<HTMLParagraphElement>("#token-modal-status");
   private debugExportButton = document.querySelector<HTMLButtonElement>("#debug-export");
+  private threatModal = document.querySelector<HTMLDivElement>("#threat-modal");
+  private threatBackdrop = document.querySelector<HTMLDivElement>("#threat-modal-backdrop");
+  private threatTitle = document.querySelector<HTMLHeadingElement>("#threat-modal-title");
+  private threatSubtitle = document.querySelector<HTMLParagraphElement>("#threat-modal-subtitle");
+  private threatIcons = document.querySelector<HTMLDivElement>("#threat-modal-icons");
+  private threatCount = document.querySelector<HTMLSpanElement>("#threat-modal-count");
+  private threatFocusButton = document.querySelector<HTMLButtonElement>("#threat-modal-focus");
+  private threatCloseButton = document.querySelector<HTMLButtonElement>("#threat-modal-close");
+  private threatResumeButton = document.querySelector<HTMLButtonElement>("#threat-modal-resume");
+  private threatBurnButton = document.querySelector<HTMLButtonElement>("#threat-modal-burn");
   private extinctionAnnounced = false;
   private gameInitialized = false;
   private readonly camera: CameraController;
@@ -116,6 +126,12 @@ export class Game {
     warrior: 0,
     scout: 0,
   };
+  private lastThreatFocus: Vec2 | null = null;
+  private preThreatWarriors: number[] = [];
+  private blessingApplied = false;
+  private burningHex = false;
+  private onChainBalances: { hex: number; theron: number } | null = null;
+  private onChainBalanceInterval: number | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.mobileMediaQuery = window.matchMedia("(max-width: 900px)");
@@ -141,6 +157,8 @@ export class Game {
     this.setupSpeedControls();
     this.setupPlanningControls();
     this.setupTokenUI();
+    this.setupThreatModal();
+    this.startOnChainBalancePolling();
     this.bindCanvasEvents();
     this.debugExportButton?.addEventListener("click", this.exportDebugLog);
 
@@ -215,6 +233,7 @@ export class Game {
     this.simulation = new SimulationSession(this.playerTribeId, {
       onLog: (message, notificationType) => this.logEvent(message, notificationType),
       onExtinction: this.handleExtinction,
+      onThreat: this.handleThreatAlert,
     });
     this.simulation.initialize(config);
     this.extinctionAnnounced = false;
@@ -224,11 +243,14 @@ export class Game {
     this.selectedCitizen = null;
     this.hoveredCell = null;
 
+    this.onChainBalances = null;
     this.gameInitialized = true;
     this.updateRoleControls(true);
     this.refreshStructureSelection();
     this.updatePlanningHint();
     this.updateCitizenControlPanel();
+    // Si la wallet ya está conectada, sincronizar balances on-chain al arrancar
+    void this.refreshOnChainBalances();
 
     this.hud.setPauseButtonState(true);
     this.hud.updateStatus("▶️ Simulation in progress.");
@@ -571,6 +593,31 @@ export class Game {
     this.tokenModalClose?.addEventListener("click", this.closeTokenModal);
     this.tokenModalCancel?.addEventListener("click", this.closeTokenModal);
     this.tokenModalBackdrop?.addEventListener("click", this.closeTokenModal);
+  }
+
+  private setupThreatModal() {
+    const close = (resumeAfter?: boolean) => {
+      this.threatModal?.classList.add("hidden");
+      this.threatBackdrop?.classList.add("hidden");
+      if (resumeAfter) {
+        this.resume();
+      }
+    };
+
+    const focus = () => {
+      if (this.lastThreatFocus) {
+        this.camera.focusOn(this.lastThreatFocus);
+      }
+    };
+
+    this.threatBackdrop?.addEventListener("click", () => close(false));
+    this.threatCloseButton?.addEventListener("click", () => close(false));
+    this.threatResumeButton?.addEventListener("click", () => close(true));
+    this.threatFocusButton?.addEventListener("click", () => {
+      focus();
+      this.hud.updateStatus("Centered on threat. Game paused.");
+    });
+    this.threatBurnButton?.addEventListener("click", this.handleThreatBurn);
   }
 
   private handleRoleSliderInput = (event: Event) => {
@@ -1121,6 +1168,126 @@ export class Game {
     this.tokenModalBackdrop?.classList.add("hidden");
   };
 
+  private handleThreatAlert = (alert: ThreatAlert) => {
+    this.burningHex = false;
+    this.preThreatWarriors = this.captureWarriorIds();
+    this.blessingApplied = false;
+    this.pause();
+    this.populateThreatModal(alert);
+    this.focusOnThreat(alert);
+  };
+
+  private populateThreatModal(alert: ThreatAlert) {
+    if (!this.threatModal || !this.threatBackdrop) return;
+    this.threatModal.classList.remove("hidden");
+    this.threatBackdrop.classList.remove("hidden");
+
+    const icon = alert.flavor === "beast" ? "🐺" : alert.icon || "⚔️";
+
+    if (this.threatTitle) {
+      this.threatTitle.textContent = `${icon} ${alert.tribeName} attack`;
+    }
+    if (this.threatSubtitle) {
+      this.threatSubtitle.textContent =
+        alert.flavor === "raid"
+          ? "Hostile raiders have appeared at the edge of your lands."
+          : "Wild beasts have entered the valley. Prepare defenses.";
+    }
+    if (this.threatCount) {
+      this.threatCount.textContent = `${alert.attackers} enemy units detected`;
+    }
+    if (this.threatIcons) {
+      this.threatIcons.innerHTML = "";
+      const count = Math.min(alert.attackers, 12);
+      for (let i = 0; i < count; i += 1) {
+        const badge = document.createElement("span");
+        badge.className = "threat-icon";
+        badge.textContent = icon;
+        this.threatIcons.appendChild(badge);
+      }
+    }
+    if (this.threatBurnButton) {
+      this.threatBurnButton.textContent = this.blessingApplied ? "Blessing applied" : "Burn 20 HEX & bless warriors";
+      this.threatBurnButton.disabled = this.blessingApplied || this.burningHex;
+    }
+    this.hud.updateStatus("⚠️ Invasion detected. Game paused.");
+  }
+
+  private focusOnThreat(alert: ThreatAlert) {
+    if (!alert.spawn || alert.spawn.length === 0) {
+      this.lastThreatFocus = null;
+      return;
+    }
+    const center = alert.spawn.reduce(
+      (acc, pos) => ({ x: acc.x + pos.x, y: acc.y + pos.y }),
+      { x: 0, y: 0 },
+    );
+    const focusPoint = {
+      x: center.x / alert.spawn.length,
+      y: center.y / alert.spawn.length,
+    };
+    this.lastThreatFocus = focusPoint;
+    this.camera.focusOn(focusPoint);
+    this.draw();
+  }
+
+  private handleThreatBurn = async () => {
+    if (this.burningHex || this.blessingApplied) return;
+    this.burningHex = true;
+    if (this.threatBurnButton) {
+      this.threatBurnButton.disabled = true;
+      this.threatBurnButton.textContent = "Burning 20 HEX...";
+    }
+    const statusUpdate = (status: TransactionStatus, message?: string) => {
+      if (message) {
+        this.hud.updateStatus(message);
+      }
+    };
+    const result: BurnResult = await burnHexForRaidBlessing(statusUpdate);
+    this.burningHex = false;
+    if (this.threatBurnButton) {
+      this.threatBurnButton.textContent = this.blessingApplied ? "Blessing applied" : "Burn 20 HEX & bless warriors";
+      this.threatBurnButton.disabled = this.blessingApplied;
+    }
+    if (!result.success) {
+      this.hud.updateStatus(result.error ?? "HEX burn failed.");
+      this.hud.showNotification(result.error ?? "HEX burn failed", "error");
+      return;
+    }
+    this.applyWarriorBlessing();
+    this.hud.showNotification("HEX burned. Warriors blessed with +20% resistance.", "success");
+  };
+
+  private captureWarriorIds() {
+    if (!this.simulation) return [];
+    return this.simulation
+      .getCitizenSystem()
+      .getCitizens()
+      .filter((c) => c.state === "alive" && c.role === "warrior" && c.tribeId === this.playerTribeId)
+      .map((c) => c.id);
+  }
+
+  private applyWarriorBlessing() {
+    if (!this.simulation) return;
+    const citizens = this.simulation.getCitizenSystem().getCitizens();
+    let boosted = 0;
+    for (const citizen of citizens) {
+      if (citizen.state !== "alive") continue;
+      if (citizen.role !== "warrior") continue;
+      if (!this.preThreatWarriors.includes(citizen.id)) continue;
+      citizen.damageResistance = Math.max(citizen.damageResistance ?? 0, 0.2);
+      citizen.health = clamp(citizen.health * 1.2, -50, 100);
+      citizen.hexBlessed = true;
+      boosted += 1;
+    }
+    this.hud.updateStatus(
+      boosted > 0
+        ? `🔥 Warriors blessed: ${boosted} reinforced with +20% resistance.`
+        : "No existing warriors to bless.",
+    );
+    this.blessingApplied = boosted > 0;
+  }
+
   private updateTokenModalStats() {
     if (!this.simulation) return;
     const faith = this.simulation.getFaithSnapshot().value;
@@ -1143,8 +1310,10 @@ export class Game {
   }
 
   private async refreshOnChainBalances() {
-    if (!isWalletConnected()) return;
-    const account = getCurrentAccount();
+    // Usar la cuenta actual si existe; si no, intentar la primera cuenta visible de la wallet
+    const current = getCurrentAccount();
+    const fallbackAccount = getWalletInstance()?.accounts?.[0];
+    const account = current ?? fallbackAccount ?? null;
     if (!account?.address) return;
     try {
       const { hex, theron } = await getOnChainBalances(account.address);
@@ -1152,9 +1321,18 @@ export class Game {
       const token2El = document.querySelector<HTMLSpanElement>("#token2-value");
       if (token1El) token1El.textContent = hex.toFixed(2);
       if (token2El) token2El.textContent = theron.toFixed(2);
+      this.onChainBalances = { hex, theron };
+      this.updateHUD();
     } catch (error) {
       console.warn("No se pudo refrescar balances on-chain:", error);
     }
+  }
+
+  private startOnChainBalancePolling() {
+    if (this.onChainBalanceInterval !== null) return;
+    this.onChainBalanceInterval = window.setInterval(() => {
+      void this.refreshOnChainBalances();
+    }, 30_000);
   }
 
   private convertAllFaithToToken1 = async () => {
@@ -1379,9 +1557,12 @@ export class Game {
     const world = this.simulation.getWorld();
     const citizens = citizenSystem.getCitizens();
     const livingPopulation = citizens.filter((citizen) => citizen.state === "alive").length;
+    const tokenSnapshot = this.onChainBalances
+      ? { token1: this.onChainBalances.hex, token2: this.onChainBalances.theron }
+      : this.simulation.getTokens();
     const hudSnapshot: HUDSnapshot = {
       faith: this.simulation.getFaithSnapshot(),
-      tokens: this.simulation.getTokens(),
+      tokens: tokenSnapshot,
       population: {
         value: livingPopulation,
         trend: this.simulation.getResourceTrendAverage("population"),

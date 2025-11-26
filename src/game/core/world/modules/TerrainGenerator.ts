@@ -101,6 +101,7 @@ export class TerrainGenerator {
                     terrain,
                     fertility,
                     moisture,
+                    visibility: "hidden",
                     inhabitants: [],
                     priority: "none",
                     cropProgress: 0,

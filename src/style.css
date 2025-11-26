@@ -659,6 +659,42 @@ body {
   box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
 }
 
+.modal.modal-danger .modal-header {
+  background: linear-gradient(135deg, #2e0f0f, #4b1a1a);
+  color: #ffb3b3;
+}
+
+.modal.modal-danger .modal-content {
+  border: 1px solid #5c1f1f;
+  box-shadow: 0 12px 40px rgba(255, 87, 87, 0.2);
+}
+
+.threat-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.threat-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #221012;
+  border: 1px solid #ff7878;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-shadow: inset 0 0 12px rgba(255, 120, 120, 0.2);
+}
+
+.threat-count {
+  font-weight: 700;
+  color: #ffb7b7;
+  margin: 6px 0 4px;
+}
+
 .modal:not(.hidden) {
   pointer-events: auto;
 }

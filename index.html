@@ -226,6 +226,30 @@
   <!-- Citizen Control Panel (Bottom Left) -->
   <div id="citizen-control-panel" class="hidden"></div>
 
+  <!-- Threat alert modal -->
+  <div id="threat-modal-backdrop" class="modal-backdrop hidden"></div>
+  <div id="threat-modal" class="modal modal-danger hidden" role="dialog" aria-modal="true" aria-labelledby="threat-modal-title">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="threat-modal-title">⚔️ Incoming threat</h3>
+        <button type="button" class="modal-close" id="threat-modal-close" aria-label="Close threat alert">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="threat-modal-subtitle">Hostile forces have appeared at the edge of the map.</p>
+        <div class="threat-icons" id="threat-modal-icons"></div>
+        <p class="threat-count"><span id="threat-modal-count">0 enemies</span></p>
+        <p class="modal-info">
+          ⚠️ The game is paused. Jump to the invasion spot to plan defenses.
+        </p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="threat-modal-burn" class="primary">Burn 20 HEX &amp; bless warriors</button>
+        <button type="button" id="threat-modal-focus" class="primary">Focus on invaders</button>
+        <button type="button" id="threat-modal-resume">Resume</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Token conversion modal -->
   <div id="token-modal-backdrop" class="modal-backdrop hidden"></div>
   <div id="token-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="token-modal-title">

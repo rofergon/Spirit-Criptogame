@@ -19,7 +19,7 @@ export class CitizenPortraitBarController {
         const aliveCitizens = citizens.filter((c) => c.state === "alive");
 
         if (aliveCitizens.length === 0) {
-            this.container.textContent = "No hay aldeanos vivos";
+            this.container.textContent = "No living citizens";
             this.portraits.clear();
             return;
         }

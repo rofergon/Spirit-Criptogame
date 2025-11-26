@@ -47,3 +47,5 @@ pnpm-debug.log*
 *.temp
 .temp/
 .tmp/
+
+public/assets/DaVinci_Resolve_20.2.3_Windows.zip

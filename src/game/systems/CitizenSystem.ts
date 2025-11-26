@@ -10,7 +10,15 @@ import { ResourceCollectionEngine } from "./resource/ResourceCollectionEngine";
 
 export type CitizenSystemEvent =
   | { type: "log"; message: string; notificationType?: ToastNotification["type"] }
-  | { type: "powerGain"; amount: number };
+  | { type: "powerGain"; amount: number }
+  | {
+    type: "invasion";
+    attackers: number;
+    tribeName: string;
+    spawn: Vec2[];
+    icon: string;
+    flavor: "raid" | "beast";
+  };
 
 type AssignableRole = Extract<Role, "farmer" | "worker" | "warrior" | "scout">;
 const ASSIGNABLE_ROLES: AssignableRole[] = ["farmer", "worker", "warrior", "scout"];
@@ -106,12 +114,13 @@ export class CitizenSystem {
     this.repository.pruneDeadCitizens();
     }
 
-    spawnMigrants(attitude: "neutral" | "friendly" | "hostile") {
+  spawnMigrants(attitude: "neutral" | "friendly" | "hostile") {
     const entry = this.findValidSpawnPoint("left");
     if (!entry) {
       this.emit({ type: "log", message: "A group of travelers passed by (no safe route)." });
       return;
     }
+    const arrivals: Citizen[] = [];
 
     for (let i = 0; i < 3; i += 1) {
       const role: Role = attitude === "hostile" ? "warrior" : "worker";
@@ -123,23 +132,45 @@ export class CitizenSystem {
       const y = clamp(entry.y + offsetY, 0, this.world.size - 1);
 
       if (this.world.isWalkable(x, y)) {
-      const citizen = this.createCitizen(role, x, y, tribeId);
-      citizen.morale = 50;
-      citizen.health = 70;
-      citizen.currentGoal = attitude === "hostile" ? "raid" : "settle";
-      this.addCitizen(citizen);
+        const citizen = this.createCitizen(role, x, y, tribeId);
+        citizen.morale = 50;
+        citizen.health = 70;
+        citizen.currentGoal = attitude === "hostile" ? "raid" : "settle";
+        this.addCitizen(citizen);
+        arrivals.push(citizen);
       }
     }
-    this.emit({
-      type: "log",
-      message: attitude === "hostile" ? "A hostile tribe approaches from the horizon." : "Travelers approach seeking shelter.",
-    });
+    if (arrivals.length > 0) {
+      const positions = arrivals.map((c) => ({ x: c.x, y: c.y }));
+      if (attitude === "hostile") {
+        const tribeNames = ["Ashen Claws", "Iron Howl", "Crimson Spear", "Salt Raiders", "Storm Wolves"];
+        const tribeName = tribeNames[Math.floor(Math.random() * tribeNames.length)] ?? "Unknown Raiders";
+        this.emit({
+          type: "invasion",
+          attackers: arrivals.length,
+          tribeName,
+          spawn: positions,
+          icon: "⚔️",
+          flavor: "raid",
+        });
+        this.emit({
+          type: "log",
+          message: "A hostile tribe approaches from the horizon.",
+        });
+      } else {
+        this.emit({
+          type: "log",
+          message: "Travelers approach seeking shelter.",
+        });
+      }
     }
+  }
 
   spawnBeasts() {
     const entry = this.findValidSpawnPoint("bottom");
     if (!entry) return;
 
+    const beasts: Citizen[] = [];
     for (let i = 0; i < 2; i += 1) {
       const offsetX = Math.floor(Math.random() * 3);
       const x = clamp(entry.x + offsetX, 0, this.world.size - 1);
@@ -151,9 +182,20 @@ export class CitizenSystem {
         beast.morale = 100;
         beast.currentGoal = "beast";
         this.addCitizen(beast);
+        beasts.push(beast);
       }
     }
-    this.emit({ type: "log", message: "Bestias salvajes merodean la frontera." });
+    if (beasts.length > 0) {
+      this.emit({
+        type: "invasion",
+        attackers: beasts.length,
+        tribeName: "Wild Beasts",
+        spawn: beasts.map((b) => ({ x: b.x, y: b.y })),
+        icon: "🐺",
+        flavor: "beast",
+      });
+      this.emit({ type: "log", message: "Bestias salvajes merodean la frontera." });
+    }
   }
 
   private findValidSpawnPoint(edge: "left" | "bottom"): Vec2 | null {

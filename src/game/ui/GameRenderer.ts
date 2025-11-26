@@ -157,10 +157,16 @@ export class GameRenderer {
       draw: () => void;
     };
     const renderList: RenderItem[] = [];
+    const fogTiles: Array<{ center: Vec2; visibility: WorldCell["visibility"] }> = [];
 
     state.world.cells.forEach((row) =>
       row.forEach((cell) => {
         const center = getHexCenter(cell.x, cell.y, hex, offsetX, offsetY);
+        const visibility = cell.visibility ?? "visible";
+        const isHidden = visibility === "hidden";
+        const isDiscovered = visibility === "discovered";
+        const terrainAlpha = isHidden ? 0.45 : isDiscovered ? 0.85 : 1;
+        const objectAlpha = isDiscovered ? 0.65 : 1;
 
         // Visibility check
         const halfWidth = hex.halfWidth + visibilityPadding;
@@ -175,14 +181,26 @@ export class GameRenderer {
         }
 
         // 1. Draw Ground
+        ctx.save();
+        ctx.globalAlpha = terrainAlpha;
         this.drawTerrainBase(center, hex, cell);
         this.drawTerrainDetail(center, hex, cell);
         this.drawHexFrame(center, hex);
+        ctx.restore();
 
-        if (cell.priority !== "none") {
-          ctx.globalAlpha = 0.35;
+        if (cell.priority !== "none" && !isHidden) {
+          ctx.save();
+          ctx.globalAlpha = isDiscovered ? 0.35 : 0.45;
           this.fillHex(center, hex, this.getPriorityColor(cell.priority));
-          ctx.globalAlpha = 1;
+          ctx.restore();
+        }
+
+        if (visibility !== "visible") {
+          fogTiles.push({ center, visibility });
+        }
+
+        if (isHidden) {
+          return;
         }
 
         // 2. Collect Objects
@@ -191,7 +209,7 @@ export class GameRenderer {
           renderList.push({
             y: center.y,
             x: center.x,
-            draw: () => this.drawStructure(cell.structure!, center, cellSize),
+            draw: () => this.drawWithFogAlpha(objectAlpha, () => this.drawStructure(cell.structure!, center, cellSize)),
           });
         }
 
@@ -201,15 +219,17 @@ export class GameRenderer {
             y: center.y,
             x: center.x,
             draw: () => {
-              this.drawCrop(cell, center, cellSize);
-              this.drawFarmOverlay(cell, center, hex);
+              this.drawWithFogAlpha(objectAlpha, () => {
+                this.drawCrop(cell, center, cellSize);
+                this.drawFarmOverlay(cell, center, hex);
+              });
             },
           });
         } else if (cell.resource) {
           renderList.push({
             y: center.y,
             x: center.x,
-            draw: () => this.drawResource(cell, center, cellSize),
+            draw: () => this.drawWithFogAlpha(objectAlpha, () => this.drawResource(cell, center, cellSize)),
           });
         }
 
@@ -220,7 +240,7 @@ export class GameRenderer {
             renderList.push({
               y: center.y,
               x: center.x,
-              draw: () => this.drawConstructionOverlay(site, center, hex),
+              draw: () => this.drawWithFogAlpha(objectAlpha, () => this.drawConstructionOverlay(site, center, hex)),
             });
           }
         }
@@ -230,6 +250,9 @@ export class GameRenderer {
     // Collect Citizens
     state.citizens.forEach((citizen) => {
       if (citizen.state === "dead") return;
+      const citizenCell = state.world.getCell(citizen.x, citizen.y);
+      const visibility = citizenCell?.visibility ?? "visible";
+      if (visibility !== "visible") return;
       const center = getHexCenter(citizen.x, citizen.y, hex, offsetX, offsetY);
 
       // Visibility check for citizens
@@ -267,6 +290,7 @@ export class GameRenderer {
 
     renderList.forEach((item) => item.draw());
 
+    this.drawFogOverlays(fogTiles, hex);
     this.drawNotifications(state.notifications);
     this.drawLegend();
   }
@@ -781,6 +805,48 @@ export class GameRenderer {
     traceHexPath(ctx, center, hex);
     ctx.fillStyle = color;
     ctx.fill();
+  }
+
+  private drawFogOverlays(fogTiles: Array<{ center: Vec2; visibility: WorldCell["visibility"] }>, hex: HexGeometry) {
+    const ctx = this.ctx;
+    fogTiles.forEach(({ center, visibility }) => {
+      const maxAlpha = visibility === "hidden" ? 0.92 : 0.6;
+      const innerAlpha = visibility === "hidden" ? 0.75 : 0.35;
+      const gradient = ctx.createRadialGradient(
+        center.x,
+        center.y,
+        hex.size * 0.3,
+        center.x,
+        center.y,
+        hex.size * 1.5
+      );
+      gradient.addColorStop(0, `rgba(10, 12, 24, ${innerAlpha})`);
+      gradient.addColorStop(1, `rgba(4, 6, 14, ${maxAlpha})`);
+
+      ctx.save();
+      traceHexPath(ctx, center, hex);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      if (visibility === "discovered") {
+        ctx.strokeStyle = "rgba(148, 163, 184, 0.22)";
+        ctx.lineWidth = 1;
+        traceHexPath(ctx, center, hex);
+        ctx.stroke();
+      }
+      ctx.restore();
+    });
+  }
+
+  private drawWithFogAlpha(alpha: number, draw: () => void) {
+    if (alpha >= 0.999) {
+      draw();
+      return;
+    }
+    this.ctx.save();
+    this.ctx.globalAlpha *= alpha;
+    draw();
+    this.ctx.restore();
   }
 
 

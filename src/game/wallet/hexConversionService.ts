@@ -427,6 +427,13 @@ export async function getOnChainBalances(address: string): Promise<{
   return { hex, theron };
 }
 
+export interface BurnResult {
+  success: boolean;
+  burned?: number;
+  transactionDigest?: string;
+  error?: string;
+}
+
 /**
  * Obtiene las estadísticas del contrato HEX
  */
@@ -459,5 +466,105 @@ export async function getHexEconomyStats(): Promise<{
   } catch (error) {
     console.error('❌ Error obteniendo estadísticas de HEX:', error);
     return null;
+  }
+}
+
+/**
+ * Quema 20 HEX para bendecir a los guerreros (boost defensivo al atacar la aldea)
+ */
+export async function burnHexForRaidBlessing(
+  onStatusChange?: (status: TransactionStatus, message?: string) => void,
+): Promise<BurnResult> {
+  try {
+    const required = 20n * HEX_MULT;
+    onStatusChange?.('building-transaction', 'Comprobando balance de HEX (20 requeridos)...');
+
+    if (!isWalletConnected()) {
+      return { success: false, error: 'Conecta OneWallet para quemar HEX.' };
+    }
+
+    const account = getCurrentAccount();
+    if (!account?.address) {
+      return { success: false, error: 'No se encontró la cuenta activa en OneWallet.' };
+    }
+
+    const coins = await onechainClient.getCoins({
+      owner: account.address,
+      coinType: HEX_TOKEN.TYPE,
+      limit: 50,
+    });
+
+    const coin = coins.data.find((c) => BigInt(c.balance) >= required);
+    if (!coin) {
+      return { success: false, error: 'Necesitas al menos 20 HEX para la bendición.' };
+    }
+
+    const tx = new Transaction();
+    tx.setSender(account.address);
+
+    // Separar exactamente 20 HEX en subunidades (decimales 9)
+    const [burnCoin] = tx.splitCoins(tx.object(coin.coinObjectId), [tx.pure.u64(required)]);
+    const reason = Array.from(new TextEncoder().encode("raid_blessing"));
+
+    tx.moveCall({
+      target: `${ONECHAIN_PACKAGE_ID}::${HEX_TOKEN.MODULE}::burn_tokens`,
+      arguments: [
+        tx.object(HEX_TOKEN.TREASURY_HOLDER),
+        tx.object(HEX_TOKEN.ECONOMY_STATS),
+        burnCoin,
+        tx.pure(reason),
+      ],
+    });
+
+    await tx.build({ client: onechainClient });
+
+    const wallet = getWalletInstance();
+    const signAndExecuteFeature = wallet?.features['sui:signAndExecuteTransactionBlock'] as any;
+    if (!signAndExecuteFeature) {
+      return { success: false, error: 'La wallet no soporta signAndExecuteTransactionBlock' };
+    }
+
+    let chainId = account.chains?.[0] || 'sui:testnet';
+    if (chainId.toLowerCase().includes('mainnet')) {
+      return { success: false, error: 'Cambia OneWallet a Testnet para quemar HEX.' };
+    }
+    if (!chainId.toLowerCase().includes('testnet')) {
+      chainId = 'sui:testnet';
+    }
+
+    onStatusChange?.('signing', 'Firma la quema de 20 HEX para bendecir guerreros...');
+    const result = await signAndExecuteFeature.signAndExecuteTransactionBlock({
+      transactionBlock: tx,
+      account,
+      chain: chainId,
+      options: { showEffects: true },
+    });
+
+    if (!result?.digest) {
+      return { success: false, error: 'La transacción no devolvió digest.' };
+    }
+
+    onStatusChange?.('confirming', 'Confirmando quema en OneChain...');
+    const confirmed = await onechainClient.waitForTransaction({
+      digest: result.digest,
+      options: { showEffects: true },
+    });
+
+    if (confirmed.effects?.status?.status !== 'success') {
+      return {
+        success: false,
+        error: confirmed.effects?.status?.error || 'La quema de HEX falló en la cadena.',
+      };
+    }
+
+    onStatusChange?.('success', 'HEX quemado, bendición aplicada.');
+    return {
+      success: true,
+      burned: 20,
+      transactionDigest: result.digest,
+    };
+  } catch (error: any) {
+    console.error('❌ Error quemando HEX:', error);
+    return { success: false, error: error?.message || 'Error al quemar HEX.' };
   }
 }

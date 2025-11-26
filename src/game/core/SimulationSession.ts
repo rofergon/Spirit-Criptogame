@@ -4,6 +4,14 @@ import { WorldEngine } from "./world/WorldEngine";
 import { CitizenSystem, type CitizenSystemEvent } from "../systems/CitizenSystem";
 import { CONVERSION_RATES } from "../../config/contracts";
 
+export type ThreatAlert = {
+  attackers: number;
+  tribeName: string;
+  spawn: Vec2[];
+  icon: string;
+  flavor: "raid" | "beast";
+};
+
 type SimulationConfig = {
   worldSize: number;
   seed: number;
@@ -13,6 +21,7 @@ type SimulationConfig = {
 type SimulationHooks = {
   onLog?: (message: string, notificationType?: ToastNotification["type"]) => void;
   onExtinction?: () => void;
+  onThreat?: (alert: ThreatAlert) => void;
 };
 
 type RunTickOptions = {
@@ -56,6 +65,7 @@ export class SimulationSession {
     const roles = this.buildInitialRoles(config.difficulty);
     this.citizenSystem.init(roles, this.playerTribeId);
     this.applyDifficultyAdjustments(config.difficulty);
+    this.world.updateVisibility(this.citizenSystem.getCitizens(), this.playerTribeId);
 
     this.lastResourceSnapshot = {
       food: this.world.stockpile.food,
@@ -81,6 +91,7 @@ export class SimulationSession {
     this.updateEvents(tickHours);
     this.world.updateEnvironment(this.climate, tickHours);
     this.citizenSystem.update(tickHours);
+    this.world.updateVisibility(this.citizenSystem.getCitizens(), this.playerTribeId);
     this.generateFaith(tickHours);
     this.trackResourceTrends(tickHours);
     this.checkExtinction();
@@ -281,6 +292,14 @@ export class SimulationSession {
   private handleCitizenEvent(event: CitizenSystemEvent) {
     if (event.type === "log") {
       this.log(event.message, event.notificationType);
+    } else if (event.type === "invasion") {
+      this.hooks.onThreat?.({
+        attackers: event.attackers,
+        tribeName: event.tribeName,
+        spawn: event.spawn,
+        icon: event.icon,
+        flavor: event.flavor,
+      });
     }
   }
 

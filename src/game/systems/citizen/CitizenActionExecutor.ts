@@ -102,7 +102,9 @@ export class CitizenActionExecutor {
       this.navigator.moveCitizenTowards(attacker, target.x, target.y);
       return;
     }
-    const damage = attacker.role === "warrior" ? 15 : 5;
+    const baseDamage = attacker.role === "warrior" ? 15 : 5;
+    const reduction = target.damageResistance && target.damageResistance > 0 ? Math.max(0, Math.min(target.damageResistance, 0.9)) : 0;
+    const damage = Math.max(0, Math.floor(baseDamage * (1 - reduction)));
     target.health = clamp(target.health - damage, -50, 100);
     target.lastDamageCause = `combate con ${attacker.id}`;
     attacker.fatigue = clamp(attacker.fatigue + 5, 0, 100);

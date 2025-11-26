@@ -39,6 +39,7 @@ export interface WorldCell {
   cropProgress: number;
   cropStage: 0 | 1 | 2 | 3;
   farmTask: FarmTask | null;
+  visibility: "hidden" | "discovered" | "visible";
 }
 
 export type StructureBlueprint = {
@@ -117,6 +118,8 @@ export interface Citizen {
   pendingRoleChange?: Role;
   activeTask?: "gather" | "construct" | "tendCrops" | "attack" | "mate";
   forceStore?: boolean;
+  damageResistance?: number;
+  hexBlessed?: boolean;
 }
 
 export interface WorldView {
