@@ -1,8 +1,8 @@
-import { HOURS_PER_SECOND, PRIORITY_KEYMAP, TICK_HOURS, WORLD_SIZE } from "./core/constants";
+import { PRIORITY_KEYMAP, WORLD_SIZE } from "./core/constants";
 import { InputHandler } from "./core/InputHandler";
 import { clamp } from "./core/utils";
 import type { Citizen, PriorityMark, ToastNotification, Vec2 } from "./core/types";
-import { SimulationSession, type SimulationVisualEvent } from "./core/SimulationSession";
+import type { SimulationSession, SimulationVisualEvent } from "./core/SimulationSession";
 import { CameraController } from "./core/CameraController";
 import { HUDController, type HUDSnapshot } from "./ui/HUDController";
 import { CitizenPortraitBarController } from "./ui/CitizenPortraitBar";
@@ -15,12 +15,9 @@ import { TokenController } from "./controllers/TokenController";
 import { ThreatController } from "./controllers/ThreatController";
 import { RoleController } from "./controllers/RoleController";
 import { InteractionController } from "./controllers/InteractionController";
+import { LifecycleController } from "./controllers/LifecycleController";
 
 export class Game {
-  private running = false;
-  private lastTime = 0;
-  private accumulatedHours = 0;
-
   private readonly input = new InputHandler();
   private mainMenu: MainMenu;
   private readonly renderer: GameRenderer;
@@ -35,9 +32,9 @@ export class Game {
   private simulation: SimulationSession | null = null;
   private readonly tokens: TokenController;
   private readonly threats: ThreatController;
+  private readonly lifecycle: LifecycleController;
   private debugExportButton = document.querySelector<HTMLButtonElement>("#debug-export");
   private extinctionAnnounced = false;
-  private gameInitialized = false;
   private readonly camera: CameraController;
 
   private pendingPriority: PriorityMark | null = null;
@@ -50,7 +47,6 @@ export class Game {
   private zoomInButton = document.querySelector<HTMLButtonElement>("#zoom-in");
   private zoomOutButton = document.querySelector<HTMLButtonElement>("#zoom-out");
   private speedButtons: HTMLButtonElement[] = [];
-  private speedMultiplier = 1;
   private projectileAnimations: Array<{ from: Vec2; to: Vec2; spawnedAt: number; duration: number }> = [];
   private readonly projectileDurationMs = 650;
 
@@ -67,10 +63,10 @@ export class Game {
       camera: this.camera,
       mainMenu: this.mainMenu,
       getSimulation: () => this.simulation,
-      onPauseToggle: this.handlePauseToggle,
+      onPauseToggle: () => this.lifecycle?.handlePauseToggle(),
       onResize: this.handleResize,
       getHoveredCell: () => this.hoveredCell,
-      isRunning: () => this.running,
+      isRunning: () => this.lifecycle?.isRunning() ?? false,
     });
     this.roles = new RoleController({
       hud: this.hud,
@@ -104,14 +100,46 @@ export class Game {
       hud: this.hud,
       camera: this.camera,
       getSimulation: () => this.simulation,
-      onPause: () => this.pause(),
-      onResume: () => this.resume(),
+      onPause: () => this.lifecycle.pause(),
+      onResume: () => this.lifecycle.resume(),
       onRequestRender: () => this.draw(),
       playerTribeId: this.playerTribeId,
     });
+    this.lifecycle = new LifecycleController({
+      playerTribeId: this.playerTribeId,
+      mainMenu: this.mainMenu,
+      planning: this.planning,
+      camera: this.camera,
+      hud: this.hud,
+      tokens: this.tokens,
+      roles: this.roles,
+      threats: this.threats,
+      logEvent: (message, notificationType) => this.logEvent(message, notificationType),
+      onExtinction: this.handleExtinction,
+      resetExtinctionAnnouncement: () => {
+        this.extinctionAnnounced = false;
+      },
+      clearSelection: () => {
+        this.selectedCitizen = null;
+        this.hoveredCell = null;
+      },
+      setSimulation: (session) => {
+        this.simulation = session;
+      },
+      updateCitizenPanel: () => this.updateCitizenControlPanel(),
+      onTick: (tickHours) => this.runTick(tickHours),
+      onDraw: () => this.draw(),
+      onFrame: () => this.handleRealtimeInput(),
+      onSpeedChange: (multiplier, changed) => {
+        this.updateSpeedButtons(multiplier);
+        if (changed && this.lifecycle.isInitialized()) {
+          this.logEvent(`Simulation speed ${multiplier}×`);
+        }
+      },
+    });
     this.camera.setViewTarget({ x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 });
 
-    this.hud.setupHeaderButtons(this.handlePauseToggle);
+    this.hud.setupHeaderButtons(() => this.lifecycle.handlePauseToggle());
     this.hud.hideOverlay(); // Hide the overlay immediately
     this.hud.updateStatus("🎮 Configure your world and press START");
     this.hud.setPauseButtonState(false); // Show button as if paused
@@ -130,84 +158,8 @@ export class Game {
     this.handleResize();
 
     // Start the render loop immediately to show the menu
-    this.running = true;
-    this.lastTime = performance.now();
-    requestAnimationFrame(this.loop);
+    this.lifecycle.start();
   }
-
-  private initializeGame() {
-    if (this.gameInitialized) return;
-
-    const config = this.mainMenu.getConfig();
-
-    this.simulation = new SimulationSession(this.playerTribeId, {
-      onLog: (message, notificationType) => this.logEvent(message, notificationType),
-      onExtinction: this.handleExtinction,
-      onThreat: (alert) => this.threats.handleThreat(alert),
-    });
-    this.simulation.initialize(config);
-    this.extinctionAnnounced = false;
-
-    const world = this.simulation.getWorld();
-    this.camera.setViewTarget({ x: world.villageCenter.x + 0.5, y: world.villageCenter.y + 0.5 });
-    this.selectedCitizen = null;
-    this.hoveredCell = null;
-
-    this.tokens.resetBalances();
-    this.gameInitialized = true;
-    this.roles.refresh(true);
-    this.planning.refreshStructureSelection();
-    this.planning.updatePlanningHint();
-    this.updateCitizenControlPanel();
-    // Si la wallet ya está conectada, sincronizar balances on-chain al arrancar
-    void this.tokens.refreshOnChainBalances();
-
-    this.hud.setPauseButtonState(true);
-    this.hud.updateStatus("▶️ Simulation in progress.");
-  }
-
-  private initializeAndStart() {
-    this.mainMenu.hide();
-    this.initializeGame();
-    // The loop will continue automatically after closing the menu
-  }
-
-  start() {
-    // No longer needed because the game starts by showing the menu automatically
-  }
-
-  pause() {
-    if (!this.gameInitialized) return; // Do not pause if game has not started
-    this.running = false;
-    this.hud.updateStatus("⏸️ Paused.");
-    this.hud.setPauseButtonState(false);
-  }
-
-  resume() {
-    if (!this.gameInitialized) return; // Do not resume if game has not started
-    if (this.running) return;
-    this.running = true;
-    this.lastTime = performance.now();
-    this.hud.updateStatus("▶️ Simulation in progress.");
-    this.hud.setPauseButtonState(true);
-    requestAnimationFrame(this.loop);
-  }
-
-  private handlePauseToggle = () => {
-    if (!this.gameInitialized) {
-      // If game has not started, close menu and initialize
-      if (this.mainMenu.isMenuVisible()) {
-        this.initializeAndStart();
-      }
-      return;
-    }
-
-    if (this.running) {
-      this.pause();
-    } else {
-      this.resume();
-    }
-  };
 
   private setupSpeedControls() {
     const container = document.querySelector<HTMLDivElement>(".speed-controls-header");
@@ -224,31 +176,19 @@ export class Game {
         if (!Number.isFinite(nextSpeed) || nextSpeed <= 0) {
           return;
         }
-        this.setSpeedMultiplier(nextSpeed);
+        this.lifecycle.setSpeedMultiplier(nextSpeed);
       });
     });
     this.updateSpeedButtons();
   }
 
-  private setSpeedMultiplier(multiplier: number) {
-    if (!Number.isFinite(multiplier) || multiplier <= 0) {
-      return;
-    }
-    const changed = this.speedMultiplier !== multiplier;
-    this.speedMultiplier = multiplier;
-    this.updateSpeedButtons();
-    if (changed && this.gameInitialized) {
-      this.logEvent(`Simulation speed ${multiplier}×`);
-    }
-  }
-
-  private updateSpeedButtons() {
+  private updateSpeedButtons(activeMultiplier = this.lifecycle.getSpeedMultiplier()) {
     if (this.speedButtons.length === 0) {
       return;
     }
     this.speedButtons.forEach((button) => {
       const buttonSpeed = Number(button.dataset.speed ?? "1");
-      const isActive = buttonSpeed === this.speedMultiplier;
+      const isActive = buttonSpeed === activeMultiplier;
       button.classList.toggle("active", isActive);
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
@@ -284,39 +224,6 @@ export class Game {
     this.cellTooltip.hide();
   };
 
-  private loop = (time: number) => {
-    if (!this.running) return;
-
-    // If menu is visible, only render it
-    if (this.mainMenu.isMenuVisible()) {
-      this.planning.setActionBarHidden(true);
-      this.mainMenu.render();
-      // Prevent delta from exploding when closing the menu
-      this.lastTime = time;
-      requestAnimationFrame(this.loop);
-      return;
-    }
-    this.planning.setActionBarHidden(false);
-
-    // If game is not initialized but menu closed, initialize now
-    if (!this.gameInitialized) {
-      this.initializeGame();
-    }
-
-    const deltaSeconds = (time - this.lastTime) / 1000;
-    this.lastTime = time;
-    this.handleRealtimeInput();
-
-    this.accumulatedHours += deltaSeconds * HOURS_PER_SECOND * this.speedMultiplier;
-    while (this.accumulatedHours >= TICK_HOURS) {
-      this.runTick(TICK_HOURS);
-      this.accumulatedHours -= TICK_HOURS;
-    }
-
-    this.draw();
-    requestAnimationFrame(this.loop);
-  };
-
   private handleRealtimeInput() {
     Object.entries(PRIORITY_KEYMAP).forEach(([key, priority]) => {
       if (this.input.consumeKey(key)) {
@@ -350,7 +257,7 @@ export class Game {
   }
 
   private runTick(tickHours: number) {
-    if (!this.gameInitialized || !this.simulation) return;
+    if (!this.lifecycle.isInitialized() || !this.simulation) return;
 
     const priority = this.pendingPriority;
 
@@ -413,7 +320,7 @@ export class Game {
 
 
   private updateHUD() {
-    if (!this.gameInitialized || !this.simulation) return;
+    if (!this.lifecycle.isInitialized() || !this.simulation) return;
     const citizenSystem = this.simulation.getCitizenSystem();
     const world = this.simulation.getWorld();
     const citizens = citizenSystem.getCitizens();
@@ -520,7 +427,7 @@ export class Game {
   }
 
   private draw() {
-    if (!this.gameInitialized || !this.simulation) return;
+    if (!this.lifecycle.isInitialized() || !this.simulation) return;
 
     const renderState: RenderState = {
       world: this.simulation.getWorld(),
@@ -536,7 +443,7 @@ export class Game {
   }
 
   private handleCitizenPanelSelection = (citizenId: number) => {
-    if (!this.gameInitialized || !this.simulation) {
+    if (!this.lifecycle.isInitialized() || !this.simulation) {
       return;
     }
     const citizen = this.simulation.getCitizenSystem().getCitizenById(citizenId) ?? null;
@@ -570,14 +477,14 @@ export class Game {
     const hoverAnchor = () => (this.hoveredCell ? { x: this.hoveredCell.x + 0.5, y: this.hoveredCell.y + 0.5 } : null);
 
     this.zoomInButton?.addEventListener("click", () => {
-      if (!this.gameInitialized) {
+      if (!this.lifecycle.isInitialized()) {
         return;
       }
       this.camera.adjustZoom(0.2, hoverAnchor());
     });
 
     this.zoomOutButton?.addEventListener("click", () => {
-      if (!this.gameInitialized) {
+      if (!this.lifecycle.isInitialized()) {
         return;
       }
       this.camera.adjustZoom(-0.2, hoverAnchor());

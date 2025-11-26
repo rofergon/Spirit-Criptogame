@@ -3,6 +3,9 @@ import type { CameraController } from "../core/CameraController";
 import type { Vec2, Citizen } from "../core/types";
 import type { SimulationSession } from "../core/SimulationSession";
 
+/**
+ * Dependencies required by the InteractionController
+ */
 interface InteractionDependencies {
   canvas: HTMLCanvasElement;
   camera: CameraController;
@@ -17,23 +20,35 @@ interface InteractionDependencies {
   hideOverlayTooltip: () => void;
 }
 
+/**
+ * Handles all user interactions with the game canvas
+ * including mouse, touch, and keyboard events
+ */
 export class InteractionController {
   private readonly deps: InteractionDependencies;
+  // Flag to prevent unwanted canvas clicks after drag operations
   private skipNextCanvasClick = false;
   private skipClickReset: number | null = null;
+  // Touch interaction tracking
   private touchStart: { x: number; y: number } | null = null;
   private touchLast: { x: number; y: number } | null = null;
   private touchMoved = false;
+  // Pinch-to-zoom tracking
   private pinchStartDistance: number | null = null;
   private pinchStartZoom: number | null = null;
+  // Panning state flags
   private isTouchPanning = false;
   private isMousePanning = false;
+  // Currently hovered cell
   private hoveredCell: Vec2 | null = null;
 
   constructor(deps: InteractionDependencies) {
     this.deps = deps;
   }
 
+  /**
+   * Bind all event listeners to the canvas and window
+   */
   bind() {
     const { canvas } = this.deps;
     canvas.addEventListener("click", this.handleCanvasClick);
@@ -52,6 +67,9 @@ export class InteractionController {
     window.addEventListener("resize", this.hideTooltip);
   }
 
+  /**
+   * Clean up all event listeners
+   */
   destroy() {
     const { canvas } = this.deps;
     canvas.removeEventListener("click", this.handleCanvasClick);
@@ -69,6 +87,10 @@ export class InteractionController {
     window.removeEventListener("resize", this.hideTooltip);
   }
 
+  /**
+   * Handle click events on the canvas
+   * Selects citizens or cells based on click location
+   */
   private handleCanvasClick = (event: MouseEvent) => {
     if (this.consumeSkippedClick()) {
       return;
@@ -98,6 +120,9 @@ export class InteractionController {
     this.deps.onUpdateCitizenPanel();
   };
 
+  /**
+   * Handle mouse hover to update cell highlighting and planning strokes
+   */
   private handleCanvasHover = (event: MouseEvent) => {
     const simulation = this.deps.getSimulation();
     if (!simulation) {
@@ -111,6 +136,9 @@ export class InteractionController {
     }
   };
 
+  /**
+   * Handle mouse wheel events for zoom control
+   */
   private handleCanvasWheel = (event: WheelEvent) => {
     event.preventDefault();
     this.hideTooltip();
@@ -118,7 +146,11 @@ export class InteractionController {
     this.deps.camera.adjustZoom(delta);
   };
 
+  /**
+   * Handle mouse button press for planning strokes and panning
+   */
   private handleMouseDown = (event: MouseEvent) => {
+    // Left click: start planning stroke
     if (event.button === 0 && this.deps.planning.isActive()) {
       const cell = this.deps.camera.getCellUnderPointer(event);
       if (cell) {
@@ -129,6 +161,7 @@ export class InteractionController {
       }
       return;
     }
+    // Middle click: start panning
     if (event.button === 1) {
       event.preventDefault();
       this.hideTooltip();
@@ -137,6 +170,9 @@ export class InteractionController {
     }
   };
 
+  /**
+   * Handle mouse button release
+   */
   private handleMouseUp = (event: MouseEvent) => {
     if (event.button === 0 && this.deps.planning.isStrokeActive()) {
       const shouldClearPlanning = this.deps.planning.isActive() && !this.deps.planning.isBuildMode();
@@ -149,6 +185,10 @@ export class InteractionController {
     }
   };
 
+  /**
+   * Handle touch start for mobile interactions
+   * Supports both single touch (tap/pan) and two-finger pinch zoom
+   */
   private handleTouchStart = (event: TouchEvent) => {
     if (event.touches.length === 0) {
       return;
@@ -161,6 +201,7 @@ export class InteractionController {
     this.touchMoved = false;
     this.isTouchPanning = false;
 
+    // Two-finger touch: prepare for pinch zoom
     if (event.touches.length === 2) {
       this.pinchStartDistance = this.getPinchDistance(event.touches);
       this.pinchStartZoom = this.deps.camera.getZoom();
@@ -171,7 +212,11 @@ export class InteractionController {
     }
   };
 
+  /**
+   * Handle touch movement for panning and pinch zoom
+   */
   private handleTouchMove = (event: TouchEvent) => {
+    // Two-finger pinch zoom
     if (event.touches.length === 2) {
       event.preventDefault();
       this.handlePinchZoom(event);
@@ -209,6 +254,9 @@ export class InteractionController {
     }
   };
 
+  /**
+   * Handle touch end to finalize taps or planning strokes
+   */
   private handleTouchEnd = (event: TouchEvent) => {
     if (event.touches.length > 0) {
       return;
@@ -250,6 +298,9 @@ export class InteractionController {
     }
   };
 
+  /**
+   * Handle touch cancellation (system interruption)
+   */
   private handleTouchCancel = () => {
     this.touchStart = null;
     this.touchLast = null;
@@ -261,6 +312,9 @@ export class InteractionController {
     this.deps.planning.finishStroke();
   };
 
+  /**
+   * Calculate and apply zoom based on pinch gesture
+   */
   private handlePinchZoom(event: TouchEvent) {
     if (event.touches.length !== 2) {
       return;
@@ -284,6 +338,9 @@ export class InteractionController {
     this.deps.camera.setZoom(newZoom, anchor ?? undefined);
   }
 
+  /**
+   * Calculate distance between two touch points
+   */
   private getPinchDistance(touches: TouchList) {
     const a = touches[0];
     const b = touches[1];
@@ -291,6 +348,9 @@ export class InteractionController {
     return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
   }
 
+  /**
+   * Calculate center point between two touch points
+   */
   private getPinchCenter(touches: TouchList) {
     const a = touches[0];
     const b = touches[1];
@@ -298,10 +358,16 @@ export class InteractionController {
     return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
   }
 
+  /**
+   * Hide any visible tooltips
+   */
   private hideTooltip = () => {
     this.deps.hideOverlayTooltip();
   };
 
+  /**
+   * Suppress next canvas click to prevent unintended actions after drag
+   */
   private suppressNextCanvasClick(delayMs = 400) {
     this.skipNextCanvasClick = true;
     if (this.skipClickReset !== null) {
@@ -313,6 +379,9 @@ export class InteractionController {
     }, delayMs);
   }
 
+  /**
+   * Check and consume the skip click flag
+   */
   private consumeSkippedClick() {
     if (!this.skipNextCanvasClick) {
       return false;

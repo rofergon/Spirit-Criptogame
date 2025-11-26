@@ -2,22 +2,32 @@ import type { SimulationSession } from "../core/SimulationSession";
 import type { Role } from "../core/types";
 import type { HUDController } from "../ui/HUDController";
 
+// Roles that can be assigned to citizens
 type AssignableRole = Extract<Role, "farmer" | "worker" | "warrior" | "scout">;
 
+/**
+ * Dependencies required by the RoleController
+ */
 interface RoleDependencies {
   hud: HUDController;
   getSimulation: () => SimulationSession | null;
   playerTribeId: number;
 }
 
+/**
+ * Manages citizen role assignments and UI controls
+ * Handles sliders for farmer, worker, warrior, scout, and devotee roles
+ */
 export class RoleController {
   private readonly assignableRoles: AssignableRole[] = ["farmer", "worker", "warrior", "scout"];
+  // UI controls for each assignable role
   private roleControls: Record<AssignableRole, { input: HTMLInputElement | null; value: HTMLSpanElement | null }> = {
     farmer: { input: null, value: null },
     worker: { input: null, value: null },
     warrior: { input: null, value: null },
     scout: { input: null, value: null },
   };
+  // Special control for devotee role (requires temples)
   private devoteeControl: {
     input: HTMLInputElement | null;
     value: HTMLSpanElement | null;
@@ -29,9 +39,12 @@ export class RoleController {
     slots: document.querySelector<HTMLSpanElement>("#role-devotee-slots"),
     help: document.querySelector<HTMLParagraphElement>("#role-devotee-help"),
   };
+  // Number of devotee slots provided by each temple
   private readonly devoteeSlotsPerTemple = 3;
   private devoteeTarget = 0;
+  // Track which role slider was last adjusted for prioritization
   private lastAdjustedRole: AssignableRole | null = null;
+  // Current target counts for each role
   private roleTargets: Record<AssignableRole, number> = {
     farmer: 0,
     worker: 0,
@@ -41,15 +54,24 @@ export class RoleController {
 
   constructor(private readonly deps: RoleDependencies) {}
 
+  /**
+   * Initialize role controls and event listeners
+   */
   init() {
     this.setupRoleControls();
     this.refresh(true);
   }
 
+  /**
+   * Refresh role controls to match current game state
+   */
   refresh(force = false) {
     this.updateRoleControls(force);
   }
 
+  /**
+   * Set up UI controls and event listeners for all roles
+   */
   private setupRoleControls() {
     this.roleControls = {
       farmer: {
@@ -87,11 +109,15 @@ export class RoleController {
     }
   }
 
+  /**
+   * Handle role slider input and rebalance population assignments
+   */
   private handleRoleSliderInput = (event: Event) => {
     const simulation = this.deps.getSimulation();
     if (!simulation) {
       return;
     }
+    // Identify which role slider was adjusted
     const role = this.getRoleFromEvent(event);
     if (role) {
       this.lastAdjustedRole = role;
@@ -99,6 +125,7 @@ export class RoleController {
       const rawValue = targetInput ? Number.parseInt(targetInput.value ?? "0", 10) : 0;
       this.roleTargets[role] = Number.isFinite(rawValue) ? Math.max(0, rawValue) : 0;
     }
+    // Get available population and normalize targets
     const assignable = simulation.getCitizenSystem().getAssignablePopulationCount(this.deps.playerTribeId, true);
     const normalized = this.normalizeRoleTargets(this.roleTargets, assignable, this.lastAdjustedRole ?? undefined);
     this.roleTargets = normalized;
@@ -109,6 +136,9 @@ export class RoleController {
     this.updateRoleControls(true);
   };
 
+  /**
+   * Extract role identifier from slider input event
+   */
   private getRoleFromEvent(event: Event): AssignableRole | null {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) {
@@ -121,6 +151,9 @@ export class RoleController {
     return this.assignableRoles.find((role) => this.roleControls[role].input === target) ?? null;
   }
 
+  /**
+   * Handle devotee slider input and update temple assignments
+   */
   private handleDevoteeSliderInput = () => {
     const simulation = this.deps.getSimulation();
     if (!simulation) {
@@ -218,6 +251,9 @@ export class RoleController {
     return finalTargets;
   }
 
+  /**
+   * Update all role control UI elements to reflect current state
+   */
   private updateRoleControls(force = false) {
     const simulation = this.deps.getSimulation();
     if (!simulation) {
@@ -245,6 +281,9 @@ export class RoleController {
     this.updateDevoteeControl(force);
   }
 
+  /**
+   * Update devotee control UI based on available temple slots
+   */
   private updateDevoteeControl(force = false) {
     const simulation = this.deps.getSimulation();
     if (!simulation) {

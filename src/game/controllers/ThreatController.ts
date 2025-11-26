@@ -5,6 +5,9 @@ import type { HUDController } from "../ui/HUDController";
 import type { CameraController } from "../core/CameraController";
 import { burnHexForRaidBlessing, type BurnResult, type TransactionStatus } from "../wallet/hexConversionService";
 
+/**
+ * Dependencies required by the ThreatController
+ */
 interface ThreatDependencies {
   hud: HUDController;
   camera: CameraController;
@@ -15,7 +18,12 @@ interface ThreatDependencies {
   playerTribeId: number;
 }
 
+/**
+ * Manages threat alerts (raids and beast attacks)
+ * Handles modal display, camera focus, and HEX token blessing system
+ */
 export class ThreatController {
+  // Modal UI elements
   private threatModal = document.querySelector<HTMLDivElement>("#threat-modal");
   private threatBackdrop = document.querySelector<HTMLDivElement>("#threat-modal-backdrop");
   private threatTitle = document.querySelector<HTMLHeadingElement>("#threat-modal-title");
@@ -27,21 +35,34 @@ export class ThreatController {
   private threatResumeButton = document.querySelector<HTMLButtonElement>("#threat-modal-resume");
   private threatBurnButton = document.querySelector<HTMLButtonElement>("#threat-modal-burn");
 
+  // Track threat location for camera focus
   private lastThreatFocus: Vec2 | null = null;
+  // Warriors present when threat appeared (eligible for blessing)
   private preThreatWarriors: number[] = [];
+  // Track whether blessing has been applied
   private blessingApplied = false;
+  // Track ongoing burn transaction
   private burningHex = false;
 
   constructor(private readonly deps: ThreatDependencies) {}
 
+  /**
+   * Initialize threat modal and event listeners
+   */
   init() {
     this.setupThreatModal();
   }
 
+  /**
+   * Clean up and hide modal
+   */
   destroy() {
     this.hideModal();
   }
 
+  /**
+   * Handle incoming threat alert - pause game and show modal
+   */
   handleThreat(alert: ThreatAlert) {
     this.burningHex = false;
     this.preThreatWarriors = this.captureWarriorIds();
@@ -51,6 +72,9 @@ export class ThreatController {
     this.focusOnThreat(alert);
   }
 
+  /**
+   * Set up modal button event handlers
+   */
   private setupThreatModal() {
     const close = (resumeAfter?: boolean) => {
       this.hideModal();
@@ -76,11 +100,17 @@ export class ThreatController {
     this.threatBurnButton?.addEventListener("click", this.handleThreatBurn);
   }
 
+  /**
+   * Hide the threat modal
+   */
   private hideModal() {
     this.threatModal?.classList.add("hidden");
     this.threatBackdrop?.classList.add("hidden");
   }
 
+  /**
+   * Populate modal with threat details and icons
+   */
   private populateThreatModal(alert: ThreatAlert) {
     if (!this.threatModal || !this.threatBackdrop) return;
     this.threatModal.classList.remove("hidden");
@@ -117,6 +147,9 @@ export class ThreatController {
     this.deps.hud.updateStatus("⚠️ Invasion detected. Game paused.");
   }
 
+  /**
+   * Focus camera on threat spawn location
+   */
   private focusOnThreat(alert: ThreatAlert) {
     if (!alert.spawn || alert.spawn.length === 0) {
       this.lastThreatFocus = null;
@@ -135,6 +168,10 @@ export class ThreatController {
     this.deps.onRequestRender();
   }
 
+  /**
+   * Handle HEX token burn to bless warriors
+   * Burns 20 HEX tokens on-chain to grant resistance boost
+   */
   private handleThreatBurn = async () => {
     if (this.burningHex || this.blessingApplied) return;
     this.burningHex = true;
@@ -162,6 +199,9 @@ export class ThreatController {
     this.deps.hud.showNotification("HEX burned. Warriors blessed with +20% resistance.", "success");
   };
 
+  /**
+   * Capture IDs of all current warriors for blessing eligibility
+   */
   private captureWarriorIds() {
     const simulation = this.deps.getSimulation();
     if (!simulation) return [];
@@ -172,6 +212,10 @@ export class ThreatController {
       .map((c) => c.id);
   }
 
+  /**
+   * Apply resistance blessing to warriors that existed before threat
+   * Grants +20% damage resistance and health boost
+   */
   private applyWarriorBlessing() {
     const simulation = this.deps.getSimulation();
     if (!simulation) return;

@@ -4,8 +4,12 @@ import type { HUDController } from "../ui/HUDController";
 import type { SimulationSession } from "../core/SimulationSession";
 import type { ToastNotification } from "../core/types";
 
+// Snapshot of on-chain token balances
 type OnChainSnapshot = { hex: number; theron: number };
 
+/**
+ * Dependencies required by the TokenController
+ */
 interface TokenDependencies {
   hud: HUDController;
   getSimulation: () => SimulationSession | null;
@@ -13,10 +17,17 @@ interface TokenDependencies {
   onBalancesChanged: () => void;
 }
 
+/**
+ * Manages token conversion from in-game Faith to on-chain HEX tokens
+ * Handles wallet integration and balance polling
+ */
 export class TokenController {
+  // Cached on-chain token balances
   private onChainBalances: OnChainSnapshot | null = null;
+  // Polling interval for balance updates
   private onChainBalanceInterval: number | null = null;
 
+  // UI elements
   private token1Pill = document.querySelector<HTMLDivElement>("#token1-pill");
   private tokenModal = document.querySelector<HTMLDivElement>("#token-modal");
   private tokenModalBackdrop = document.querySelector<HTMLDivElement>("#token-modal-backdrop");
@@ -29,11 +40,17 @@ export class TokenController {
 
   constructor(private readonly deps: TokenDependencies) {}
 
+  /**
+   * Initialize token UI and start balance polling
+   */
   init() {
     this.setupTokenUI();
     this.startOnChainBalancePolling();
   }
 
+  /**
+   * Clean up polling and close modal
+   */
   destroy() {
     if (this.onChainBalanceInterval !== null) {
       window.clearInterval(this.onChainBalanceInterval);
@@ -42,14 +59,23 @@ export class TokenController {
     this.closeTokenModal();
   }
 
+  /**
+   * Reset cached balances
+   */
   resetBalances() {
     this.onChainBalances = null;
   }
 
+  /**
+   * Get current token balances snapshot
+   */
   getTokenSnapshot() {
     return this.onChainBalances ? { token1: this.onChainBalances.hex, token2: this.onChainBalances.theron } : null;
   }
 
+  /**
+   * Fetch latest on-chain balances and update UI
+   */
   async refreshOnChainBalances() {
     const current = getCurrentAccount();
     const fallbackAccount = getWalletInstance()?.accounts?.[0];
@@ -68,6 +94,9 @@ export class TokenController {
     }
   }
 
+  /**
+   * Set up token modal UI and event listeners
+   */
   private setupTokenUI() {
     const open = (event?: KeyboardEvent | MouseEvent) => {
       if (event && event.type === "keydown") {
@@ -85,6 +114,9 @@ export class TokenController {
     this.tokenModalBackdrop?.addEventListener("click", this.closeTokenModal);
   }
 
+  /**
+   * Open the token conversion modal
+   */
   private openTokenModal = () => {
     const simulation = this.deps.getSimulation();
     if (!simulation || !this.tokenModal || !this.tokenModalBackdrop) {
@@ -95,11 +127,17 @@ export class TokenController {
     this.tokenModalBackdrop.classList.remove("hidden");
   };
 
+  /**
+   * Close the token conversion modal
+   */
   private closeTokenModal = () => {
     this.tokenModal?.classList.add("hidden");
     this.tokenModalBackdrop?.classList.add("hidden");
   };
 
+  /**
+   * Update modal statistics (Faith amount, conversion rate)
+   */
   private updateTokenModalStats() {
     const simulation = this.deps.getSimulation();
     if (!simulation) return;
@@ -122,6 +160,9 @@ export class TokenController {
     }
   }
 
+  /**
+   * Start periodic polling of on-chain balances (every 30 seconds)
+   */
   private startOnChainBalancePolling() {
     if (this.onChainBalanceInterval !== null) return;
     this.onChainBalanceInterval = window.setInterval(() => {
@@ -129,6 +170,9 @@ export class TokenController {
     }, 30_000);
   }
 
+  /**
+   * Convert all available Faith to HEX tokens via on-chain transaction
+   */
   convertAllFaithToToken1 = async () => {
     const simulation = this.deps.getSimulation();
     if (!simulation) {
@@ -217,6 +261,9 @@ export class TokenController {
     }
   };
 
+  /**
+   * Display animated success feedback with fireworks and coin flip
+   */
   private showConversionSuccessAnimation(hexAmount: number) {
     if (!this.tokenModal) return;
     const anim = document.createElement("div");
