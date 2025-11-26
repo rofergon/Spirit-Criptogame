@@ -504,7 +504,7 @@ export async function burnHexForRaidBlessing(
 
     // Separar exactamente 20 HEX en subunidades (decimales 9)
     const [burnCoin] = tx.splitCoins(tx.object(coin.coinObjectId), [tx.pure.u64(required)]);
-    const reason = Array.from(new TextEncoder().encode("raid_blessing"));
+    const reason = new TextEncoder().encode("raid_blessing");
 
     tx.moveCall({
       target: `${ONECHAIN_PACKAGE_ID}::${HEX_TOKEN.MODULE}::burn_tokens`,

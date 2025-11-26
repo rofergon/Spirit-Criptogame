@@ -84,6 +84,8 @@ export class Game {
   private planningPriority: PlanningMode | null = null;
   private planningStrokeActive = false;
   private planningStrokeCells = new Set<string>();
+  private skipNextCanvasClick = false;
+  private skipClickReset: number | null = null;
   private planningButtons: HTMLButtonElement[] = [];
   private buildSelector = document.querySelector<HTMLDivElement>("#build-selector");
   private structurePrevButton = document.querySelector<HTMLButtonElement>("#build-prev");
@@ -845,6 +847,17 @@ export class Game {
     this.updateMobileHint(text, true);
   }
 
+  private suppressNextCanvasClick(delayMs = 400) {
+    this.skipNextCanvasClick = true;
+    if (this.skipClickReset !== null) {
+      window.clearTimeout(this.skipClickReset);
+    }
+    this.skipClickReset = window.setTimeout(() => {
+      this.skipNextCanvasClick = false;
+      this.skipClickReset = null;
+    }, delayMs);
+  }
+
   private updateBuildSelectorVisibility() {
     if (!this.buildSelector) {
       return;
@@ -1251,7 +1264,7 @@ export class Game {
     }
     if (!result.success) {
       this.hud.updateStatus(result.error ?? "HEX burn failed.");
-      this.hud.showNotification(result.error ?? "HEX burn failed", "error");
+      this.hud.showNotification(result.error ?? "HEX burn failed", "critical");
       return;
     }
     this.applyWarriorBlessing();
@@ -1676,6 +1689,14 @@ export class Game {
   }
 
   private handleCanvasClick = (event: MouseEvent) => {
+    if (this.skipNextCanvasClick) {
+      this.skipNextCanvasClick = false;
+      if (this.skipClickReset !== null) {
+        window.clearTimeout(this.skipClickReset);
+        this.skipClickReset = null;
+      }
+      return;
+    }
     if (!this.gameInitialized || !this.simulation) {
       return;
     }
@@ -1795,10 +1816,12 @@ export class Game {
       } else {
         this.planningStrokeActive = false;
         this.planningStrokeCells.clear();
+        this.suppressNextCanvasClick();
       }
     } else if (this.planningPriority && this.planningStrokeActive) {
       this.planningStrokeActive = false;
       this.planningStrokeCells.clear();
+      this.suppressNextCanvasClick();
     }
 
     if (this.planningPriority && this.planningPriority !== "build") {
@@ -1944,6 +1967,7 @@ export class Game {
       if (cell) {
         event.preventDefault();
         this.cellTooltip.hide();
+        this.suppressNextCanvasClick(); // Ignore the click event fired right after painting.
         if (this.planningPriority === "build") {
           this.applyStructurePlan(cell);
           this.planningStrokeActive = false;
@@ -1970,6 +1994,7 @@ export class Game {
     if (event.button === 0 && this.planningStrokeActive) {
       this.planningStrokeActive = false;
       this.planningStrokeCells.clear();
+      this.suppressNextCanvasClick();
       if (this.planningPriority && this.planningPriority !== "build") {
         this.clearPlanningMode();
       }
