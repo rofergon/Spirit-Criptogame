@@ -30,6 +30,17 @@ Tokenomics (Two-Token Model)
 - Flow summary: Faith (gameplay faucet) → HEX (utility, on-chain, sinks via upgrades) → THERON (premium, OCT on-ramp, HEX burn path). Clear sinks and dual on-ramps (earnable + purchasable).
 - Classic investor levers: treasury allocation with multi-sig control; emissions schedule with halving cadence; staking/yield for HEX with lockups and slashing for security; liquidity provisioning program (HEX/OCT, THERON/OCT) with protocol-owned liquidity targets; buyback-and-burn policy tied to in-game revenue; vesting cliffs for team/partners; governance gating for THERON holders on feature unlocks and treasury spend; third-party audits on contracts + on-chain monitoring.
 
+Starter Chests (Paid in THERON)
+-------------------------------
+- Gold Chest: basic land plot + 6 villagers + 2 babies + one copy of every building including the Faith-farming temple; priced in THERON.  
+  ![Gold Chest](../public/assets/Chest/Gold_chest.png)
+- Silver Chest: 4 villagers + 2 babies + one copy of all buildings except the defense tower; priced in THERON.  
+  ![Silver Chest](../public/assets/Chest/Silver_chest.png)
+- Copper Chest: 4 villagers, no babies, no tower or temple included; priced in THERON.  
+  ![Copper Chest](../public/assets/Chest/Copper_Chest.png)
+- All purchases use the premium THERON token.  
+  ![Theron Token](../public/assets/extracted_icons/Theron_token.png)
+
 Market Position & Next Steps
 ----------------------------
 - Differentiation: living autonomous villagers plus procedural worlds; clear on-chain utility loop (Faith → HEX → THERON) rather than cosmetic-only NFTs.
