@@ -532,11 +532,16 @@ export class CitizenSystem {
     this.devoteeAssignments.delete(citizen.id);
     this.resourceEngine.clearReservationForCitizen(citizen.id);
     const reason = citizen.lastDamageCause ?? "unknown cause";
+    const isFriendly = citizen.tribeId === this.playerTribeId;
+    const isBeast = citizen.currentGoal === "beast" || citizen.tribeId === 120;
+    const descriptor = isFriendly ? "Citizen" : isBeast ? "Beast" : "Hostile raider";
+    const verb = isFriendly ? "has died" : "eliminated";
+
     this.emit({
       type: "log",
-      message: `Citizen ${citizen.id} has died (${reason}) at ${this.formatCoords(citizen.x, citizen.y)}.`,
+      message: `${descriptor} ${citizen.id} ${verb} (${reason}) at ${this.formatCoords(citizen.x, citizen.y)}.`,
     });
-    }
+  }
 
     private tryEatFromStockpile(citizen: Citizen) {
     let ateFromCarry = false;

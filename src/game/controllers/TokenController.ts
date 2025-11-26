@@ -233,7 +233,7 @@ export class TokenController {
         simulation.convertFaithToToken1();
 
         this.deps.logEvent(
-          `✨ Convertiste ${result.faithSpent} Faith en ${result.hexReceived} HEX tokens on-chain. ` +
+          `✨ Converted ${result.faithSpent} Faith into ${result.hexReceived} HEX tokens on-chain. ` +
             `TX: ${result.transactionDigest?.slice(0, 10)}...`,
         );
         this.deps.hud.showNotification(`¡${result.hexReceived} HEX tokens recibidos!`, "success", 6000);
