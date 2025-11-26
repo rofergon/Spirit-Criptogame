@@ -2,6 +2,8 @@ import type { Citizen, CitizenAction, CitizenAI, FarmTask, Role, StructureType, 
 import type { WorldEngine } from "../../core/world/WorldEngine";
 import type { CitizenSystemEvent } from "../CitizenSystem";
 import { FOOD_STORE_THRESHOLD, ResourceCollectionEngine } from "../resource/ResourceCollectionEngine";
+import type { CellTask } from "../task/CellTaskManager";
+import { CellTaskManager } from "../task/CellTaskManager";
 
 const REST_START_FATIGUE = 70;
 const REST_STOP_FATIGUE = 35;
@@ -19,12 +21,13 @@ export type BehaviorDecision = {
 
 let activeDirector: CitizenBehaviorDirector | null = null;
 let activeGatherEngine: ResourceCollectionEngine | null = null;
+let activeTaskManager: CellTaskManager | null = null;
 
 export class CitizenBehaviorDirector {
   private readonly aiDispatch: Record<Role, CitizenAI>;
   readonly world: WorldEngine;
 
-  constructor(world: WorldEngine, private hooks: BehaviorHooks, private resourceEngine: ResourceCollectionEngine) {
+  constructor(world: WorldEngine, private hooks: BehaviorHooks, private resourceEngine: ResourceCollectionEngine, private taskManager: CellTaskManager) {
     this.world = world;
     this.aiDispatch = {
       warrior: warriorAI,
@@ -36,6 +39,7 @@ export class CitizenBehaviorDirector {
     };
     activeDirector = this;
     activeGatherEngine = this.resourceEngine;
+    activeTaskManager = this.taskManager;
   }
 
   decideAction(citizen: Citizen, view: WorldView): BehaviorDecision {
@@ -94,6 +98,13 @@ export class CitizenBehaviorDirector {
       }
     }
 
+    // Keep a minimal personal ration on hand
+    const rationAction = this.ensurePersonalRations(citizen, view);
+    if (rationAction) {
+      citizen.currentGoal = "resupply";
+      return rationAction;
+    }
+
     if (citizen.role === "child" && citizen.age > 12) {
       citizen.role = "worker";
       this.hooks.emit({ type: "log", message: `Citizen ${citizen.id} has grown up and will work.` });
@@ -140,6 +151,34 @@ export class CitizenBehaviorDirector {
 
   getConstructionDirectiveFor(citizen: Citizen) {
     return this.world.findClosestConstructionCell({ x: citizen.x, y: citizen.y });
+  }
+
+  private ensurePersonalRations(citizen: Citizen, view: WorldView): CitizenAction | null {
+    const desired = 3;
+    const needed = desired - citizen.carrying.food;
+    if (needed <= 0) return null;
+
+    // If there is food in storage, go pick it up
+    const world = activeDirector?.world;
+    const storageFood = world?.stockpile.food ?? 0;
+    const isHungry = citizen.hunger > 75 || citizen.carrying.food === 0;
+    const stockIsComfortable = storageFood >= desired * 3;
+    if ((isHungry || stockIsComfortable) && storageFood > 0 && activeGatherEngine) {
+      const storageTarget = activeGatherEngine.findStorageTarget(citizen, view);
+      const atStorage = citizen.x === storageTarget.x && citizen.y === storageTarget.y;
+      if (atStorage) {
+        return { type: "refillFood", amount: needed };
+      }
+      return { type: "move", x: storageTarget.x, y: storageTarget.y };
+    }
+
+    // Farmers try to grab food directly from fields when storage is empty
+    if (citizen.role === "farmer" && activeGatherEngine) {
+      citizen.pendingFoodReserve = true;
+      return activeGatherEngine.runGathererBrain(citizen, view, "food");
+    }
+
+    return null;
   }
 }
 
@@ -240,23 +279,89 @@ const beastAI: CitizenAI = (citizen, view) => {
 };
 
 const FARM_TASK_PRIORITY: FarmTask[] = ["harvest", "fertilize", "sow"];
+const FARM_TASK_TYPES = FARM_TASK_PRIORITY.map((task) => `farm:${task}`);
 
-const findFarmWorkCell = (citizen: Citizen, view: WorldView, tasks: FarmTask[]) => {
-  for (const task of tasks) {
-    let best: { cell: (typeof view.cells)[number]; distance: number } | null = null;
-    for (const cell of view.cells) {
-      if (cell.priority !== "farm") continue;
-      if (cell.farmTask !== task) continue;
-      const distance = Math.abs(cell.x - citizen.x) + Math.abs(cell.y - citizen.y);
-      if (!best || distance < best.distance) {
-        best = { cell, distance };
-      }
+const farmTaskType = (task: FarmTask) => `farm:${task}`;
+
+const collectFarmTasks = (view: WorldView, world?: WorldEngine | null): CellTask[] => {
+  const tasks = new Map<string, CellTask>();
+  const addTask = (x: number, y: number, task: FarmTask) => {
+    tasks.set(`${x},${y}`, { x, y, type: farmTaskType(task) });
+  };
+
+  view.cells.forEach((cell) => {
+    if (cell.priority !== "farm" || !cell.farmTask) return;
+    addTask(cell.x, cell.y, cell.farmTask);
+  });
+
+  const globalTasks = world?.getFarmTasks() ?? [];
+  for (const cell of globalTasks) {
+    if (!cell.farmTask) continue;
+    addTask(cell.x, cell.y, cell.farmTask);
+  }
+
+  return Array.from(tasks.values());
+};
+
+const isFarmCellBlocked = (task: CellTask, citizen: Citizen, view: WorldView) => {
+  if (activeTaskManager?.isReservedByOther(task.x, task.y, citizen.id)) {
+    return true;
+  }
+  return view.nearbyCitizens.some((other) => {
+    if (other.id === citizen.id) return false;
+    if (other.state === "dead") return false;
+    const movingToSameCell = other.target && other.target.x === task.x && other.target.y === task.y;
+    const occupyingSameCell = other.x === task.x && other.y === task.y;
+    return movingToSameCell || occupyingSameCell;
+  });
+};
+
+const selectFarmTask = (citizen: Citizen, view: WorldView): CellTask | null => {
+  if (!activeTaskManager || !activeDirector) return null;
+  let remaining = collectFarmTasks(view, activeDirector.world);
+  while (remaining.length > 0) {
+    const pick = activeTaskManager.pickTaskByPriority(
+      citizen,
+      remaining,
+      FARM_TASK_TYPES,
+      { spreadWeight: 1.25, desiredSpacing: 4, scope: "sameType" },
+    );
+    if (!pick) break;
+    if (!isFarmCellBlocked(pick, citizen, view)) {
+      return pick;
     }
-    if (best) {
-      return best;
-    }
+    remaining = remaining.filter((task) => !(task.x === pick.x && task.y === pick.y));
   }
   return null;
+};
+
+const getFarmGoalLabel = (taskType: string) => {
+  const [, label] = taskType.split(":");
+  return label ?? "farm";
+};
+
+const collectExploreTasks = (view: WorldView, world?: WorldEngine | null): CellTask[] => {
+  const tasks = new Map<string, CellTask>();
+  const add = (x: number, y: number) => tasks.set(`${x},${y}`, { x, y, type: "explore" });
+  view.cells.forEach((cell) => {
+    if (cell.priority === "explore") {
+      add(cell.x, cell.y);
+    }
+  });
+  const global = world?.getPriorityCells("explore") ?? [];
+  global.forEach((cell) => add(cell.x, cell.y));
+  return Array.from(tasks.values());
+};
+
+const selectExploreTask = (citizen: Citizen, view: WorldView): CellTask | null => {
+  if (!activeTaskManager || !activeDirector) return null;
+  const tasks = collectExploreTasks(view, activeDirector.world);
+  return activeTaskManager.pickTaskByPriority(
+    citizen,
+    tasks,
+    ["explore"],
+    { spreadWeight: 1.25, desiredSpacing: 5, scope: "any" },
+  );
 };
 
 const farmerAI: CitizenAI = (citizen, view) => {
@@ -268,22 +373,34 @@ const farmerAI: CitizenAI = (citizen, view) => {
   const shouldReturnToStorage = (isReturningToStorage && citizen.carrying.food > 0) || hasExcessFood;
 
   if (shouldReturnToStorage && activeGatherEngine) {
+    activeTaskManager?.releaseForCitizen(citizen.id);
     if (hasExcessFood) {
       citizen.pendingFoodReserve = true;
     }
     return activeGatherEngine.runGathererBrain(citizen, view, "food");
   }
 
-  const farmWork = findFarmWorkCell(citizen, view, FARM_TASK_PRIORITY);
-  if (farmWork) {
-    if (citizen.x === farmWork.cell.x && citizen.y === farmWork.cell.y) {
-      return { type: "tendCrops", x: farmWork.cell.x, y: farmWork.cell.y };
+  const farmTask = selectFarmTask(citizen, view);
+  if (farmTask && activeTaskManager) {
+    const claimed = activeTaskManager.claim(farmTask, citizen.id);
+    if (claimed) {
+      citizen.target = { x: farmTask.x, y: farmTask.y };
+      citizen.currentGoal = getFarmGoalLabel(farmTask.type);
+      if (citizen.x === farmTask.x && citizen.y === farmTask.y) {
+        return { type: "tendCrops", x: farmTask.x, y: farmTask.y };
+      }
+      return { type: "move", x: farmTask.x, y: farmTask.y };
     }
-    return { type: "move", x: farmWork.cell.x, y: farmWork.cell.y };
+  } else if (activeTaskManager) {
+    activeTaskManager.releaseForCitizen(citizen.id);
+    if (citizen.currentGoal && FARM_TASK_PRIORITY.includes(citizen.currentGoal as FarmTask)) {
+      delete citizen.currentGoal;
+    }
   }
 
   // If in natural gathering phases, continue
   if (isGatheringPhase) {
+    activeTaskManager?.releaseForCitizen(citizen.id);
     if (activeGatherEngine) {
       return activeGatherEngine.runGathererBrain(citizen, view, "food");
     }
@@ -292,6 +409,7 @@ const farmerAI: CitizenAI = (citizen, view) => {
 
   // Gather natural food using gatherer brain as a last resort
   if (activeGatherEngine) {
+    activeTaskManager?.releaseForCitizen(citizen.id);
     return activeGatherEngine.runGathererBrain(citizen, view, "food");
   }
 
@@ -459,10 +577,30 @@ const settlerAI: CitizenAI = (citizen, view) => {
 };
 
 const scoutAI: CitizenAI = (citizen, view) => {
-  const exploreCell = view.cells.find((cell) => cell.priority === "explore");
-  if (exploreCell) {
-    return { type: "move", x: exploreCell.x, y: exploreCell.y };
+  const exploreTask = selectExploreTask(citizen, view);
+  if (exploreTask && activeTaskManager) {
+    const claimed = activeTaskManager.claim(exploreTask, citizen.id);
+    if (claimed) {
+      citizen.currentGoal = "explore";
+      citizen.target = { x: exploreTask.x, y: exploreTask.y };
+      const isRevealed = view.cells.some(
+        (cell) =>
+          cell.x === exploreTask.x &&
+          cell.y === exploreTask.y &&
+          cell.visibility !== "hidden",
+      );
+      if (isRevealed || (citizen.x === exploreTask.x && citizen.y === exploreTask.y)) {
+        activeTaskManager.releaseAt(exploreTask.x, exploreTask.y);
+        activeDirector?.world?.setPriorityAt(exploreTask.x, exploreTask.y, "none");
+        delete citizen.target;
+        return { type: "idle" };
+      }
+      return { type: "move", x: exploreTask.x, y: exploreTask.y };
+    }
+  } else {
+    activeTaskManager?.releaseForCitizen(citizen.id);
   }
+  citizen.currentGoal = "explore";
   return { type: "move", x: citizen.x + Math.round(Math.random() * 6 - 3), y: citizen.y + Math.round(Math.random() * 6 - 3) };
 };
 
