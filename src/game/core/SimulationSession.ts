@@ -28,6 +28,7 @@ type SimulationHooks = {
   onLog?: (message: string, notificationType?: ToastNotification["type"]) => void;
   onExtinction?: () => void;
   onThreat?: (alert: ThreatAlert) => void;
+  onThreatCleared?: () => void;
   onTravelers?: (arrival: TravelerArrival) => void;
 };
 
@@ -61,6 +62,7 @@ export class SimulationSession {
   private readonly warriorBaseDamage = 15;
   private readonly towerDamage = Math.max(1, Math.round(this.warriorBaseDamage / 2));
   private visualEvents: SimulationVisualEvent[] = [];
+  private threatActive = false;
 
   constructor(private playerTribeId: number, private hooks: SimulationHooks = {}) { }
 
@@ -75,6 +77,7 @@ export class SimulationSession {
     this.faithPerHour = 0;
     this.token1 = 0;
     this.token2 = 0;
+    this.threatActive = false;
     this.world = new WorldEngine(config.worldSize, config.seed);
     this.visualEvents = [];
 
@@ -114,6 +117,7 @@ export class SimulationSession {
     this.world.updateVisibility(this.citizenSystem.getCitizens(), this.playerTribeId);
     this.generateFaith(tickHours);
     this.trackResourceTrends(tickHours);
+    this.checkThreatResolution();
     this.checkExtinction();
   }
 
@@ -315,10 +319,19 @@ export class SimulationSession {
     this.hooks.onExtinction?.();
   }
 
+  private checkThreatResolution() {
+    if (!this.threatActive) return;
+    const hasHostiles = this.citizenSystem.hasHostiles(this.playerTribeId);
+    if (hasHostiles) return;
+    this.threatActive = false;
+    this.hooks.onThreatCleared?.();
+  }
+
   private handleCitizenEvent(event: CitizenSystemEvent) {
     if (event.type === "log") {
       this.log(event.message, event.notificationType);
     } else if (event.type === "invasion") {
+      this.threatActive = true;
       this.hooks.onThreat?.({
         attackers: event.attackers,
         tribeName: event.tribeName,

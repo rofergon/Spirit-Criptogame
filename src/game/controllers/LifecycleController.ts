@@ -1,7 +1,7 @@
 import { HOURS_PER_SECOND, TICK_HOURS } from "../core/constants";
 import type { CameraController } from "../core/CameraController";
 import type { ToastNotification } from "../core/types";
-import { SimulationSession } from "../core/SimulationSession";
+import { SimulationSession, type ThreatAlert } from "../core/SimulationSession";
 import type { HUDController } from "../ui/HUDController";
 import type { MainMenu } from "../ui/MainMenu";
 import type { PlanningController } from "./PlanningController";
@@ -30,6 +30,9 @@ interface LifecycleDependencies {
   onDraw: () => void;
   onFrame?: () => void;
   onSpeedChange?: (multiplier: number, changed: boolean) => void;
+  onThreatStart?: (alert: ThreatAlert) => void;
+  onThreatCleared?: () => void;
+  onGameStarted?: () => void;
 }
 
 export class LifecycleController {
@@ -107,7 +110,11 @@ export class LifecycleController {
     const simulation = new SimulationSession(this.deps.playerTribeId, {
       onLog: (message, notificationType) => this.deps.logEvent(message, notificationType),
       onExtinction: this.deps.onExtinction,
-      onThreat: (alert) => this.deps.threats.handleThreat(alert),
+      onThreat: (alert) => {
+        this.deps.threats.handleThreat(alert);
+        this.deps.onThreatStart?.(alert);
+      },
+      onThreatCleared: () => this.deps.onThreatCleared?.(),
       onTravelers: (arrival) => this.deps.travelers.handleArrival(arrival),
     });
     simulation.initialize(config);
@@ -127,6 +134,7 @@ export class LifecycleController {
 
     this.deps.hud.setPauseButtonState(true);
     this.deps.hud.updateStatus("▶️ Simulation in progress.");
+    this.deps.onGameStarted?.();
   }
 
   private loop = (time: number) => {

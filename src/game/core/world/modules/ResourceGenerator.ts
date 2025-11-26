@@ -190,26 +190,27 @@ export class ResourceGenerator {
         // Increase density: "appear a bit more"
         // Previous logic was roughly 50% for mountain, 20% tundra, 10% desert
         // Let's aim for ~30% of valid cells having stone, but clustered
+        // Ensure at least two clusters per map so mountains always feel resource-rich.
         const desiredClusters = clamp(
             Math.floor(stonePositions.length / 8), // Higher density than wood (55)
-            1,
+            2,
             Math.max(5, Math.floor(this.size))
         );
         const used = new Set<string>();
         let placedClusters = 0;
         const maxAttempts = desiredClusters * 4;
 
-        // Ensure at least one cluster in mountain if one exists
+        // Ensure at least two clusters anchored in mountains if they exist
         if (mountainPositions.length > 0) {
-            const mountainAttempts = Math.min(3, mountainPositions.length);
-            for (let attempt = 0; attempt < mountainAttempts && placedClusters < desiredClusters; attempt += 1) {
+            const mountainTarget = Math.min(2, desiredClusters);
+            const mountainAttempts = Math.min(mountainPositions.length * 2, desiredClusters * 3);
+            for (let attempt = 0; attempt < mountainAttempts && placedClusters < mountainTarget; attempt += 1) {
                 const seedIndex = Math.floor(this.rng() * mountainPositions.length);
                 const seed = mountainPositions[seedIndex];
                 if (!seed) continue;
                 const created = this.growStoneCluster(seed, cells, used);
                 if (created > 0) {
                     placedClusters += 1;
-                    break;
                 }
             }
         }

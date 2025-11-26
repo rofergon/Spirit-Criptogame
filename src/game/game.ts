@@ -17,6 +17,7 @@ import { TravelersController } from "./controllers/TravelersController";
 import { RoleController } from "./controllers/RoleController";
 import { InteractionController } from "./controllers/InteractionController";
 import { LifecycleController } from "./controllers/LifecycleController";
+import { SoundEngine } from "./audio/SoundEngine";
 
 /**
  * Main game class that orchestrates all game systems
@@ -58,6 +59,7 @@ export class Game {
   private debugExportButton = document.querySelector<HTMLButtonElement>("#debug-export");
   private extinctionAnnounced = false;
   private readonly camera: CameraController;
+  private readonly sounds = new SoundEngine();
 
   // Priority mark queued for next tick
   private pendingPriority: PriorityMark | null = null;
@@ -71,6 +73,8 @@ export class Game {
   private readonly maxZoom = 10;
   private zoomInButton = document.querySelector<HTMLButtonElement>("#zoom-in");
   private zoomOutButton = document.querySelector<HTMLButtonElement>("#zoom-out");
+  private audioToggleButton = document.querySelector<HTMLButtonElement>("#audio-toggle");
+  private firstInteractionBound = false;
   
   // Speed control buttons
   private speedButtons: HTMLButtonElement[] = [];
@@ -97,6 +101,7 @@ export class Game {
     
     // Initialize main menu
     this.mainMenu = new MainMenu(canvas, { isMobile: false });
+    this.sounds.playMenu();
     
     // Initialize planning controller for building, farming, mining, etc.
     this.planning = new PlanningController({
@@ -197,6 +202,9 @@ export class Game {
           this.logEvent(`Simulation speed ${multiplier}×`);
         }
       },
+      onThreatStart: () => this.sounds.playAttackLoop(),
+      onThreatCleared: () => this.sounds.playMainLoop(),
+      onGameStarted: () => this.sounds.playMainLoop(),
     });
     
     // Center camera on world
@@ -219,6 +227,8 @@ export class Game {
     this.travelers.init();
     this.interactions.bind();
     this.debugExportButton?.addEventListener("click", this.exportDebugLog);
+    this.audioToggleButton?.addEventListener("click", this.handleAudioToggle);
+    this.bindAutoplayFallback();
 
     // Handle window resizing
     window.addEventListener("resize", this.handleResize);
@@ -226,6 +236,7 @@ export class Game {
 
     // Start the render loop immediately to show the menu
     this.lifecycle.start();
+    this.sounds.playMenu();
   }
 
   /**
@@ -671,6 +682,37 @@ export class Game {
   private handlePanelClose() {
     this.selectedCitizen = null;
     this.updateCitizenControlPanel();
+  }
+
+  /**
+   * Toggle audio mute/unmute state for background/attack music
+   */
+  private handleAudioToggle = () => {
+    const muted = this.sounds.toggleMute();
+    if (this.audioToggleButton) {
+      this.audioToggleButton.textContent = muted ? "🔇" : "🔊";
+      this.audioToggleButton.setAttribute("aria-pressed", muted ? "true" : "false");
+      this.audioToggleButton.title = muted ? "Unmute music" : "Mute music";
+    }
+    this.hud.updateStatus(muted ? "🔇 Music muted." : "🔊 Music on.");
+  };
+
+  /**
+   * In some browsers autoplay is blocked until user interaction.
+   * Bind a one-time interaction listener to ensure main loop starts.
+   */
+  private bindAutoplayFallback() {
+    if (this.firstInteractionBound) return;
+    this.firstInteractionBound = true;
+    const startAudio = () => {
+      if (this.mainMenu.isMenuVisible()) {
+        this.sounds.playMenu();
+      } else {
+        this.sounds.playMainLoop();
+      }
+    };
+    window.addEventListener("pointerdown", startAudio, { once: true });
+    window.addEventListener("keydown", startAudio, { once: true });
   }
 
   /**

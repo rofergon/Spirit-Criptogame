@@ -243,6 +243,16 @@ export class CitizenSystem {
     return this.repository.getPopulationCount(filter);
   }
 
+  hasHostiles(tribeId: number) {
+    return this.repository.getCitizens().some((citizen) => {
+      if (citizen.state !== "alive") return false;
+      if (citizen.tribeId === tribeId) return false;
+      const hostileGoal = citizen.currentGoal === "raid" || citizen.currentGoal === "beast";
+      const hostileTribe = citizen.tribeId === 99 || citizen.tribeId === 120;
+      return hostileGoal || hostileTribe || citizen.role === "warrior";
+    });
+  }
+
   getAssignablePopulationCount(tribeId?: number, excludeDevotees = false) {
     const assignable = this.repository.getAssignablePopulationCount(tribeId);
     if (!excludeDevotees) {
