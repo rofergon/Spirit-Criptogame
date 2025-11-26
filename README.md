@@ -1,3 +1,7 @@
+<div align="center">
+  
+![Theron: Legends of the Hex Lands](https://raw.githubusercontent.com/rofergon/carpeta-con-juan/main/.github/cover.png)
+
 # 🌟 Theron: Legends of the Hex Lands
 
 A blockchain-integrated tribal simulation game where you guide and protect a growing civilization as its guardian spirit. Watch your people work, survive, and expand in a procedurally generated hex-based world with autonomous villagers, dynamic events, and blockchain-powered economy.
@@ -6,6 +10,8 @@ A blockchain-integrated tribal simulation game where you guide and protect a gro
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9.3-blue)
 ![Vite](https://img.shields.io/badge/Vite-7.2.2-purple)
 ![OneChain](https://img.shields.io/badge/OneChain-Testnet-orange)
+
+</div>
 
 ## ✨ Features
 
