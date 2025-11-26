@@ -325,6 +325,9 @@ export class Game {
     if (this.input.consumeKey("KeyG")) {
       this.planning.togglePlanningMode("gather");
     }
+    if (this.input.consumeKey("KeyE")) {
+      this.planning.togglePlanningMode("explore");
+    }
     if (this.input.consumeKey("KeyB")) {
       this.planning.togglePlanningMode("build");
     }
