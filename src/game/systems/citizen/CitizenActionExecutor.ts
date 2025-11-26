@@ -6,6 +6,7 @@ import { CitizenRepository } from "./CitizenRepository";
 import { Navigator } from "./Navigator";
 import type { BehaviorDecision } from "./CitizenBehaviorDirector";
 import { FOOD_SELF_RESERVE, FOOD_STORE_THRESHOLD, ResourceCollectionEngine } from "../resource/ResourceCollectionEngine";
+import { CellTaskManager } from "../task/CellTaskManager";
 
 type BusyAction = Extract<CitizenAction["type"], "gather" | "construct" | "tendCrops" | "attack" | "mate">;
 const BUSY_ACTIONS: readonly BusyAction[] = ["gather", "construct", "tendCrops", "attack", "mate"];
@@ -32,6 +33,7 @@ export class CitizenActionExecutor {
     private repository: CitizenRepository,
     private navigator: Navigator,
     private resourceEngine: ResourceCollectionEngine,
+    private taskManager: CellTaskManager,
     private hooks: ActionHooks,
   ) {}
 
@@ -51,6 +53,9 @@ export class CitizenActionExecutor {
         break;
       case "storeResources":
         this.storeResources(citizen);
+        break;
+      case "refillFood":
+        this.refillFood(citizen, action.amount);
         break;
       case "rest":
         citizen.fatigue = clamp(citizen.fatigue - 3 * 1.25 * tickHours, 0, 100);
@@ -157,6 +162,7 @@ export class CitizenActionExecutor {
       cell.cropProgress = 0.1;
       cell.farmTask = null;
       citizen.morale = clamp(citizen.morale + 0.5, 0, 100);
+      this.taskManager.releaseAt(x, y);
       return;
     }
 
@@ -165,6 +171,7 @@ export class CitizenActionExecutor {
       cell.cropProgress = Math.max(cell.cropProgress, 0.5);
       cell.farmTask = null;
       citizen.morale = clamp(citizen.morale + 0.5, 0, 100);
+      this.taskManager.releaseAt(x, y);
       return;
     }
 
@@ -175,7 +182,20 @@ export class CitizenActionExecutor {
       cell.cropProgress = 0;
       cell.farmTask = cell.priority === "farm" ? "sow" : null;
       citizen.morale = clamp(citizen.morale + 1.5, 0, 100);
+      this.taskManager.releaseAt(x, y);
     }
+  }
+
+  private refillFood(citizen: Citizen, requested?: number) {
+    const cell = this.world.getCell(citizen.x, citizen.y);
+    if (!cell || !this.resourceEngine.isStorageCell(cell)) {
+      return;
+    }
+    const desired = Math.max(0, requested ?? 3);
+    const needed = Math.max(0, desired - citizen.carrying.food);
+    if (needed <= 0) return;
+    const taken = this.world.consume("food", needed);
+    citizen.carrying.food += taken;
   }
 
   private constructStructure(citizen: Citizen, siteId: number, tickHours: number) {
@@ -246,6 +266,8 @@ export class CitizenActionExecutor {
         return `recolecta ${action.resourceType}`;
       case "storeResources":
         return "deposita recursos";
+      case "refillFood":
+        return "repone raciones";
       case "rest":
         return "descansa";
       case "idle":
@@ -269,6 +291,8 @@ export class CitizenActionExecutor {
         return `gather:${action.resourceType}`;
       case "storeResources":
         return "store";
+      case "refillFood":
+        return "refillFood";
       case "rest":
         return "rest";
       case "idle":
