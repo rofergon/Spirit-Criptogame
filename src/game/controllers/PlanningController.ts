@@ -1,11 +1,11 @@
 import { getStructureDefinition, type StructureRequirements } from "../data/structures";
-import type { StructureType, Vec2 } from "../core/types";
+import type { PriorityMark, StructureType, Vec2 } from "../core/types";
 import type { SimulationSession } from "../core/SimulationSession";
 import type { HUDController } from "../ui/HUDController";
 import type { CameraController } from "../core/CameraController";
 import type { MainMenu } from "../ui/MainMenu";
 
-export type PlanningMode = "farm" | "mine" | "gather" | "build";
+export type PlanningMode = "farm" | "mine" | "gather" | "explore" | "build";
 
 interface PlanningDependencies {
   hud: HUDController;
@@ -213,6 +213,7 @@ export class PlanningController {
       farm: "Drag over the map to mark crop zones.",
       mine: "Paint over hills or mountains to prioritize mining.",
       gather: "Designate natural gathering zones for your workers.",
+      explore: "Mark regions for scouts to uncover the fog of war.",
     };
     this.setPlanningHint(labels[this.planningPriority]);
   }
@@ -386,6 +387,7 @@ export class PlanningController {
         <button type="button" data-mobile-mode="farm" aria-label="Crops" data-mobile-tip="Mark fertile zones for sowing.">🌾</button>
         <button type="button" data-mobile-mode="mine" aria-label="Mining" data-mobile-tip="Prioritize quarries and hills.">🪨</button>
         <button type="button" data-mobile-mode="gather" aria-label="Gathering" data-mobile-tip="Gather quick natural resources.">🍃</button>
+        <button type="button" data-mobile-mode="explore" aria-label="Exploration" data-mobile-tip="Mark zones for scouts to reveal.">🧭</button>
         <button type="button" data-mobile-mode="build" class="mobile-build-button" aria-label="Construction" data-mobile-tip="Create building blueprints where you touch.">
           🧱 <span id="mobile-build-label">-</span>
         </button>
@@ -407,6 +409,7 @@ export class PlanningController {
       farm: bar.querySelector<HTMLButtonElement>('[data-mobile-mode="farm"]') ?? undefined,
       mine: bar.querySelector<HTMLButtonElement>('[data-mobile-mode="mine"]') ?? undefined,
       gather: bar.querySelector<HTMLButtonElement>('[data-mobile-mode="gather"]') ?? undefined,
+      explore: bar.querySelector<HTMLButtonElement>('[data-mobile-mode="explore"]') ?? undefined,
       build: bar.querySelector<HTMLButtonElement>('[data-mobile-mode="build"]') ?? undefined,
     };
     this.registerMobileActionHandlers(bar);
@@ -480,6 +483,7 @@ export class PlanningController {
         farm: "Mark crop fields.",
         mine: "Mark mines and quarries.",
         gather: "Gather natural resources.",
+        explore: "Plan exploration routes.",
         build: "Place building blueprints.",
       };
       tipTargets.push([button, defaultHints[mode]]);
@@ -645,7 +649,8 @@ export class PlanningController {
       return;
     }
     this.planningStrokeCells.add(key);
-    simulation.getWorld().setPriorityAt(cell.x, cell.y, this.planningPriority);
+    const priority = this.planningPriority as PriorityMark;
+    simulation.getWorld().setPriorityAt(cell.x, cell.y, priority);
   }
 
   private applyStructurePlan(cell: Vec2) {
