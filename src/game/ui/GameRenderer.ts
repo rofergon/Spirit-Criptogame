@@ -197,9 +197,10 @@ export class GameRenderer {
         this.drawHexFrame(center, hex);
         ctx.restore();
 
-        if (cell.priority !== "none" && !isHidden) {
+        if (cell.priority !== "none") {
           ctx.save();
-          ctx.globalAlpha = isDiscovered ? 0.35 : 0.45;
+          const priorityAlpha = visibility === "hidden" ? 0.25 : isDiscovered ? 0.35 : 0.45;
+          ctx.globalAlpha = priorityAlpha;
           this.fillHex(center, hex, this.getPriorityColor(cell.priority));
           ctx.restore();
         }
