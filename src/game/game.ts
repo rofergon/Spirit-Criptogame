@@ -1,7 +1,7 @@
 import { HOURS_PER_SECOND, PRIORITY_KEYMAP, TICK_HOURS, WORLD_SIZE } from "./core/constants";
 import { InputHandler } from "./core/InputHandler";
 import { clamp } from "./core/utils";
-import type { Citizen, PriorityMark, Role, ToastNotification, Vec2 } from "./core/types";
+import type { Citizen, PriorityMark, ToastNotification, Vec2 } from "./core/types";
 import { SimulationSession, type SimulationVisualEvent } from "./core/SimulationSession";
 import { CameraController } from "./core/CameraController";
 import { HUDController, type HUDSnapshot } from "./ui/HUDController";
@@ -13,8 +13,8 @@ import { CellTooltipController } from "./ui/CellTooltip";
 import { PlanningController } from "./controllers/PlanningController";
 import { TokenController } from "./controllers/TokenController";
 import { ThreatController } from "./controllers/ThreatController";
-
-type AssignableRole = Extract<Role, "farmer" | "worker" | "warrior" | "scout">;
+import { RoleController } from "./controllers/RoleController";
+import { InteractionController } from "./controllers/InteractionController";
 
 export class Game {
   private running = false;
@@ -29,28 +29,10 @@ export class Game {
   private readonly citizenPanel = new CitizenControlPanelController({ onClose: () => this.handlePanelClose() });
   private readonly cellTooltip: CellTooltipController;
   private readonly planning: PlanningController;
+  private readonly roles: RoleController;
+  private readonly interactions: InteractionController;
   private readonly playerTribeId = 1;
   private simulation: SimulationSession | null = null;
-  private readonly assignableRoles: AssignableRole[] = ["farmer", "worker", "warrior", "scout"];
-  private roleControls: Record<AssignableRole, { input: HTMLInputElement | null; value: HTMLSpanElement | null }> = {
-    farmer: { input: null, value: null },
-    worker: { input: null, value: null },
-    warrior: { input: null, value: null },
-    scout: { input: null, value: null },
-  };
-  private devoteeControl: {
-    input: HTMLInputElement | null;
-    value: HTMLSpanElement | null;
-    slots: HTMLSpanElement | null;
-    help: HTMLParagraphElement | null;
-  } = {
-    input: document.querySelector<HTMLInputElement>("#role-devotee"),
-    value: document.querySelector<HTMLSpanElement>("#role-value-devotee"),
-    slots: document.querySelector<HTMLSpanElement>("#role-devotee-slots"),
-    help: document.querySelector<HTMLParagraphElement>("#role-devotee-help"),
-  };
-  private readonly devoteeSlotsPerTemple = 3;
-  private devoteeTarget = 0;
   private readonly tokens: TokenController;
   private readonly threats: ThreatController;
   private debugExportButton = document.querySelector<HTMLButtonElement>("#debug-export");
@@ -69,19 +51,6 @@ export class Game {
   private zoomOutButton = document.querySelector<HTMLButtonElement>("#zoom-out");
   private speedButtons: HTMLButtonElement[] = [];
   private speedMultiplier = 1;
-  private touchStart: { x: number; y: number } | null = null;
-  private touchLast: { x: number; y: number } | null = null;
-  private touchMoved = false;
-  private pinchStartDistance: number | null = null;
-  private pinchStartZoom: number | null = null;
-  private isTouchPanning = false;
-  private lastAdjustedRole: AssignableRole | null = null;
-  private roleTargets: Record<AssignableRole, number> = {
-    farmer: 0,
-    worker: 0,
-    warrior: 0,
-    scout: 0,
-  };
   private projectileAnimations: Array<{ from: Vec2; to: Vec2; spawnedAt: number; duration: number }> = [];
   private readonly projectileDurationMs = 650;
 
@@ -102,6 +71,28 @@ export class Game {
       onResize: this.handleResize,
       getHoveredCell: () => this.hoveredCell,
       isRunning: () => this.running,
+    });
+    this.roles = new RoleController({
+      hud: this.hud,
+      getSimulation: () => this.simulation,
+      playerTribeId: this.playerTribeId,
+    });
+    this.interactions = new InteractionController({
+      canvas,
+      camera: this.camera,
+      planning: this.planning,
+      getSimulation: () => this.simulation,
+      onSelectCitizen: (citizen) => {
+        this.selectedCitizen = citizen;
+      },
+      onUpdateCitizenPanel: () => this.updateCitizenControlPanel(),
+      onDraw: () => this.draw(),
+      getHoveredCell: () => this.hoveredCell,
+      setHoveredCell: (cell) => {
+        this.hoveredCell = cell;
+      },
+      showCellTooltip: (cell, event) => this.showCellTooltip(cell, event),
+      hideOverlayTooltip: () => this.cellTooltip.hide(),
     });
     this.tokens = new TokenController({
       hud: this.hud,
@@ -127,18 +118,15 @@ export class Game {
 
     this.planning.registerZoomButtons(this.zoomInButton, this.zoomOutButton);
     this.setupZoomControls();
-    this.setupRoleControls();
+    this.roles.init();
     this.setupSpeedControls();
     this.planning.init();
     this.tokens.init();
     this.threats.init();
-    this.bindCanvasEvents();
+    this.interactions.bind();
     this.debugExportButton?.addEventListener("click", this.exportDebugLog);
 
     window.addEventListener("resize", this.handleResize);
-    window.addEventListener("mouseup", this.handleMouseUp);
-    window.addEventListener("mousemove", this.handlePanMove);
-    window.addEventListener("blur", this.stopPanning);
     this.handleResize();
 
     // Start the render loop immediately to show the menu
@@ -167,7 +155,7 @@ export class Game {
 
     this.tokens.resetBalances();
     this.gameInitialized = true;
-    this.updateRoleControls(true);
+    this.roles.refresh(true);
     this.planning.refreshStructureSelection();
     this.planning.updatePlanningHint();
     this.updateCitizenControlPanel();
@@ -221,62 +209,6 @@ export class Game {
     }
   };
 
-  private bindCanvasEvents() {
-    this.canvas.addEventListener("click", this.handleCanvasClick);
-    this.canvas.addEventListener("mousemove", this.handleCanvasHover);
-    this.canvas.addEventListener("wheel", this.handleCanvasWheel, { passive: false });
-    this.canvas.addEventListener("mousedown", this.handleMouseDown);
-    this.canvas.addEventListener("mouseleave", this.handleCanvasLeave);
-    this.canvas.addEventListener("touchstart", this.handleTouchStart, { passive: false });
-    this.canvas.addEventListener("touchmove", this.handleTouchMove, { passive: false });
-    this.canvas.addEventListener("touchend", this.handleTouchEnd);
-    this.canvas.addEventListener("touchcancel", this.handleTouchCancel);
-
-    // Hide tooltip on scroll or resize
-    window.addEventListener("scroll", this.hideTooltip);
-    window.addEventListener("resize", this.hideTooltip);
-  }
-
-  private setupRoleControls() {
-    this.roleControls = {
-      farmer: {
-        input: document.querySelector<HTMLInputElement>("#role-farmer"),
-        value: document.querySelector<HTMLSpanElement>("#role-value-farmer"),
-      },
-      worker: {
-        input: document.querySelector<HTMLInputElement>("#role-worker"),
-        value: document.querySelector<HTMLSpanElement>("#role-value-worker"),
-      },
-      warrior: {
-        input: document.querySelector<HTMLInputElement>("#role-warrior"),
-        value: document.querySelector<HTMLSpanElement>("#role-value-warrior"),
-      },
-      scout: {
-        input: document.querySelector<HTMLInputElement>("#role-scout"),
-        value: document.querySelector<HTMLSpanElement>("#role-value-scout"),
-      },
-    };
-
-    for (const role of this.assignableRoles) {
-      const control = this.roleControls[role];
-      if (control.input) {
-        control.input.dataset.role = role;
-        control.input.addEventListener("input", this.handleRoleSliderInput);
-      }
-    }
-
-    this.devoteeControl.input?.addEventListener("input", this.handleDevoteeSliderInput);
-
-    // Prime targets with the initial slider values so the UI reflects user intent, not current assignments.
-    for (const role of this.assignableRoles) {
-      const control = this.roleControls[role];
-      const initial = Number.parseInt(control.input?.value ?? "0", 10);
-      this.roleTargets[role] = Number.isFinite(initial) ? Math.max(0, initial) : 0;
-    }
-
-    this.updateRoleControls(true);
-  }
-
   private setupSpeedControls() {
     const container = document.querySelector<HTMLDivElement>(".speed-controls-header");
     if (!container) {
@@ -322,140 +254,6 @@ export class Game {
     });
   }
 
-  private handleRoleSliderInput = (event: Event) => {
-    if (!this.gameInitialized || !this.simulation) {
-      return;
-    }
-    const role = this.getRoleFromEvent(event);
-    if (role) {
-      this.lastAdjustedRole = role;
-      const targetInput = event.target as HTMLInputElement | null;
-      const rawValue = targetInput ? Number.parseInt(targetInput.value ?? "0", 10) : 0;
-      this.roleTargets[role] = Number.isFinite(rawValue) ? Math.max(0, rawValue) : 0;
-    }
-    const assignable = this.simulation.getCitizenSystem().getAssignablePopulationCount(this.playerTribeId, true);
-    const normalized = this.normalizeRoleTargets(this.roleTargets, assignable, this.lastAdjustedRole ?? undefined);
-    this.roleTargets = normalized;
-    const finalTargets = this.simulation
-      .getCitizenSystem()
-      .rebalanceRoles(normalized, this.playerTribeId, this.lastAdjustedRole ?? undefined);
-    this.roleTargets = finalTargets;
-    this.updateRoleControls(true);
-  };
-
-  private getRoleFromEvent(event: Event): AssignableRole | null {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) {
-      return null;
-    }
-    const datasetRole = target.dataset.role as AssignableRole | undefined;
-    if (datasetRole && this.assignableRoles.includes(datasetRole)) {
-      return datasetRole;
-    }
-    return this.assignableRoles.find((role) => this.roleControls[role].input === target) ?? null;
-  }
-
-  private handleDevoteeSliderInput = () => {
-    if (!this.simulation) {
-      this.updateDevoteeControl(true);
-      return;
-    }
-    const input = this.devoteeControl.input;
-    if (!input) return;
-
-    const requested = Number.parseInt(input.value ?? "0", 10) || 0;
-    this.devoteeTarget = Math.max(0, requested);
-    const assigned = this.simulation.getCitizenSystem().setDevoteeTarget(this.devoteeTarget, this.playerTribeId);
-
-    this.updateRoleControls(true);
-    this.updateDevoteeControl(true);
-
-    if (input.disabled) {
-      this.hud.updateStatus("Build a temple to enable devotees.");
-      return;
-    }
-    const maxSlots = Number.parseInt(input.max ?? "0", 10) || 0;
-    this.hud.updateStatus(`Devotees assigned: ${assigned}/${Math.max(maxSlots, this.devoteeTarget)}`);
-  };
-
-  private collectRoleTargets() {
-    return { ...this.roleTargets };
-  }
-
-  private normalizeRoleTargets(
-    targets: Record<AssignableRole, number>,
-    available: number,
-    priorityRole?: AssignableRole | null,
-  ): Record<AssignableRole, number> {
-    const normalized: Record<AssignableRole, number> = {
-      farmer: Math.max(0, Math.floor(targets.farmer ?? 0)),
-      worker: Math.max(0, Math.floor(targets.worker ?? 0)),
-      warrior: Math.max(0, Math.floor(targets.warrior ?? 0)),
-      scout: Math.max(0, Math.floor(targets.scout ?? 0)),
-    };
-
-    if (available <= 0) {
-      return { farmer: 0, worker: 0, warrior: 0, scout: 0 };
-    }
-
-    const totalRequested = Object.values(normalized).reduce((sum, value) => sum + value, 0);
-    if (totalRequested <= available) {
-      return normalized;
-    }
-
-    const finalTargets: Record<AssignableRole, number> = {
-      farmer: 0,
-      worker: 0,
-      warrior: 0,
-      scout: 0,
-    };
-
-    if (priorityRole && this.assignableRoles.includes(priorityRole)) {
-      // Keep the last-adjusted role intact, scale the rest to fit.
-      finalTargets[priorityRole] = Math.min(normalized[priorityRole], available);
-      const remainingSlots = Math.max(available - finalTargets[priorityRole], 0);
-      const otherRoles = this.assignableRoles.filter((role) => role !== priorityRole);
-      const requestedOthers = otherRoles.reduce((sum, role) => sum + normalized[role], 0);
-
-      if (remainingSlots > 0 && requestedOthers > 0) {
-        const scale = remainingSlots / requestedOthers;
-        let assigned = finalTargets[priorityRole];
-
-        for (const role of otherRoles) {
-          finalTargets[role] = Math.floor(normalized[role] * scale);
-          assigned += finalTargets[role];
-        }
-
-        for (const role of otherRoles) {
-          if (assigned >= available) break;
-          if (finalTargets[role] < normalized[role]) {
-            finalTargets[role] += 1;
-            assigned += 1;
-          }
-        }
-      }
-
-      return finalTargets;
-    }
-
-    const scale = available / totalRequested;
-    let assigned = 0;
-    for (const role of this.assignableRoles) {
-      finalTargets[role] = Math.floor(normalized[role] * scale);
-      assigned += finalTargets[role];
-    }
-
-    for (const role of this.assignableRoles) {
-      if (assigned >= available) break;
-      if (finalTargets[role] < normalized[role]) {
-        finalTargets[role] += 1;
-        assigned += 1;
-      }
-    }
-
-    return finalTargets;
-  }
-
   private handleCancelConstruction = (siteId: number) => {
     if (!this.simulation) return;
     const result = this.simulation.cancelConstruction(siteId, { reclaimMaterials: true });
@@ -485,79 +283,6 @@ export class Game {
     );
     this.cellTooltip.hide();
   };
-
-  private updateRoleControls(force = false) {
-    if (!this.simulation) {
-      return;
-    }
-    const citizenSystem = this.simulation.getCitizenSystem();
-    const assignable = citizenSystem.getAssignablePopulationCount(this.playerTribeId, true);
-    this.roleTargets = this.normalizeRoleTargets(this.roleTargets, assignable, this.lastAdjustedRole);
-    for (const role of this.assignableRoles) {
-      const control = this.roleControls[role];
-      const currentTarget = Number.isFinite(this.roleTargets[role]) ? this.roleTargets[role] : 0;
-      const clampedTarget = Math.max(0, Math.min(currentTarget, assignable));
-      this.roleTargets[role] = clampedTarget;
-
-      if (control.value) {
-        control.value.textContent = clampedTarget.toString();
-      }
-      if (control.input) {
-        control.input.max = Math.max(assignable, 0).toString();
-        if (force || document.activeElement !== control.input) {
-          control.input.value = clampedTarget.toString();
-        }
-      }
-    }
-    this.updateDevoteeControl(force);
-  }
-
-  private updateDevoteeControl(force = false) {
-    if (!this.simulation) {
-      return;
-    }
-    const { input, value, slots, help } = this.devoteeControl;
-    if (!input) {
-      return;
-    }
-    const world = this.simulation.getWorld();
-    const citizenSystem = this.simulation.getCitizenSystem();
-    const templeCount = typeof world.getStructureCount === "function" ? world.getStructureCount("temple") : 0;
-    const maxSlots = Math.max(templeCount * this.devoteeSlotsPerTemple, 0);
-    const assignable = citizenSystem.getAssignablePopulationCount(this.playerTribeId);
-    const effectiveMax = Math.min(maxSlots, assignable);
-    const currentRaw = Number.parseInt(input.value ?? "0", 10);
-    const desired = Math.max(0, Math.min(Number.isFinite(currentRaw) ? currentRaw : 0, effectiveMax));
-    this.devoteeTarget = desired;
-
-    const assigned = citizenSystem.setDevoteeTarget(desired, this.playerTribeId);
-
-    input.max = maxSlots.toString();
-    input.disabled = maxSlots === 0 || assignable === 0;
-    const displayValue = input.disabled ? 0 : desired;
-    if (input.disabled) {
-      input.value = "0";
-    } else if (force || displayValue !== currentRaw) {
-      input.value = displayValue.toString();
-    }
-
-    if (value) {
-      value.textContent = input.value;
-    }
-
-    if (slots) {
-      slots.textContent = `${assigned}/${maxSlots}`;
-    }
-
-    if (help) {
-      help.textContent =
-        maxSlots === 0
-          ? "Build a temple to enable devotees."
-          : assignable === 0
-            ? "No assignable inhabitants available."
-            : `Available devotee slots: ${maxSlots}`;
-    }
-  }
 
   private loop = (time: number) => {
     if (!this.running) return;
@@ -644,7 +369,7 @@ export class Game {
     }
 
     this.hud.tickNotifications();
-    this.updateRoleControls();
+    this.roles.refresh();
     this.updateHUD();
     this.updateCitizenControlPanel();
     this.planning.refreshStructureSelection();
@@ -810,196 +535,6 @@ export class Game {
     this.renderer.render(renderState);
   }
 
-  private handleCanvasClick = (event: MouseEvent) => {
-    if (this.planning.consumeSkippedClick()) {
-      return;
-    }
-    if (!this.gameInitialized || !this.simulation) {
-      return;
-    }
-    if (this.planning.isActive()) {
-      return;
-    }
-    const cell = this.camera.getCellUnderPointer(event);
-    if (!cell) {
-      this.selectedCitizen = null;
-      this.cellTooltip.hide();
-      return;
-    }
-
-    const clickedCitizen = this.simulation
-      .getCitizenSystem()
-      .getCitizens()
-      .find((citizen) => citizen.state === "alive" && citizen.x === cell.x && citizen.y === cell.y);
-    this.selectedCitizen = clickedCitizen || null;
-
-    this.showCellTooltip(cell, event);
-
-    this.updateCitizenControlPanel();
-  };
-
-  private handleTouchStart = (event: TouchEvent) => {
-    if (!this.gameInitialized || !this.canvas) {
-      return;
-    }
-    if (event.touches.length === 0) {
-      return;
-    }
-    this.hideTooltip();
-    const primary = event.touches[0];
-    if (!primary) return;
-    this.touchStart = { x: primary.clientX, y: primary.clientY };
-    this.touchLast = { x: primary.clientX, y: primary.clientY };
-    this.touchMoved = false;
-    this.isTouchPanning = false;
-
-    if (event.touches.length === 2) {
-      this.pinchStartDistance = this.getPinchDistance(event.touches);
-      this.pinchStartZoom = this.camera.getZoom();
-    } else if (this.planning.isActive()) {
-      event.preventDefault();
-      const pos = { x: primary.clientX, y: primary.clientY };
-      this.planning.handlePlanningTouch(pos);
-    }
-  };
-
-  private handleTouchMove = (event: TouchEvent) => {
-    if (!this.gameInitialized) {
-      return;
-    }
-    if (event.touches.length === 2) {
-      event.preventDefault();
-      this.handlePinchZoom(event);
-      return;
-    }
-    const primary = event.touches[0];
-    if (!primary) return;
-    const current = { x: primary.clientX, y: primary.clientY };
-    this.touchLast = current;
-    const movedEnough = this.touchStart
-      ? Math.hypot(current.x - this.touchStart.x, current.y - this.touchStart.y) > 6
-      : false;
-    this.touchMoved = this.touchMoved || movedEnough;
-
-    const planningActive = this.planning.isActive();
-    const strokeActive = this.planning.isStrokeActive();
-    const buildMode = this.planning.isBuildMode();
-
-    if (strokeActive && planningActive && !buildMode) {
-      const cell = this.camera.getCellUnderPointer({ clientX: current.x, clientY: current.y } as MouseEvent);
-      if (cell) {
-        this.hoveredCell = cell;
-        this.planning.continueStrokeAt(cell);
-      }
-      return;
-    }
-
-    if (!planningActive) {
-      if (movedEnough) {
-        event.preventDefault();
-        if (!this.camera) return;
-        if (!this.isTouchPanning) {
-          this.camera.startPanning(current);
-          this.isTouchPanning = true;
-        }
-        this.camera.pan(current);
-      }
-      return;
-    }
-  };
-
-  private handleTouchEnd = (event: TouchEvent) => {
-    if (!this.gameInitialized) {
-      return;
-    }
-    if (event.touches.length > 0) {
-      return;
-    }
-
-    const last = this.touchLast;
-    const moved = this.touchMoved;
-    this.touchStart = null;
-    this.touchLast = null;
-    this.touchMoved = false;
-    this.pinchStartDistance = null;
-    this.pinchStartZoom = null;
-    this.camera.stopPanning();
-    this.isTouchPanning = false;
-
-    if (!last) {
-      return;
-    }
-
-    const planningActive = this.planning.isActive();
-    const strokeActive = this.planning.isStrokeActive();
-    const buildMode = this.planning.isBuildMode();
-
-    if (!moved) {
-      const pseudoEvent = { clientX: last.x, clientY: last.y } as MouseEvent;
-      if (!planningActive) {
-        this.handleCanvasClick(pseudoEvent);
-      } else {
-        this.planning.finishStroke();
-        this.planning.suppressNextCanvasClick();
-      }
-    } else if (planningActive && strokeActive) {
-      this.planning.finishStroke();
-      this.planning.suppressNextCanvasClick();
-    }
-
-    if (planningActive && !buildMode) {
-      this.planning.clearPlanningMode();
-    }
-  };
-
-  private handleTouchCancel = () => {
-    this.touchStart = null;
-    this.touchLast = null;
-    this.touchMoved = false;
-    this.pinchStartDistance = null;
-    this.pinchStartZoom = null;
-    this.camera.stopPanning();
-    this.isTouchPanning = false;
-    this.stopPanning();
-  };
-
-  private handlePinchZoom(event: TouchEvent) {
-    if (event.touches.length !== 2 || !this.gameInitialized) {
-      return;
-    }
-    const dist = this.getPinchDistance(event.touches);
-    if (this.pinchStartDistance === null) {
-      this.pinchStartDistance = dist;
-      this.pinchStartZoom = this.camera.getZoom();
-      return;
-    }
-    if (!this.pinchStartZoom) {
-      this.pinchStartZoom = this.camera.getZoom();
-    }
-    if (dist <= 0 || this.pinchStartDistance <= 0) {
-      return;
-    }
-    const scale = dist / this.pinchStartDistance;
-    const newZoom = this.pinchStartZoom * scale;
-    const center = this.getPinchCenter(event.touches);
-    const anchor = this.camera.getWorldPosition({ clientX: center.x, clientY: center.y } as MouseEvent);
-    this.camera.setZoom(newZoom, anchor ?? undefined);
-  }
-
-  private getPinchDistance(touches: TouchList) {
-    const a = touches[0];
-    const b = touches[1];
-    if (!a || !b) return 0;
-    return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
-  }
-
-  private getPinchCenter(touches: TouchList) {
-    const a = touches[0];
-    const b = touches[1];
-    if (!a || !b) return { x: 0, y: 0 };
-    return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
-  }
-
   private handleCitizenPanelSelection = (citizenId: number) => {
     if (!this.gameInitialized || !this.simulation) {
       return;
@@ -1010,16 +545,6 @@ export class Game {
       this.camera.focusOn({ x: citizen.x + 0.5, y: citizen.y + 0.5 });
     }
     this.updateCitizenControlPanel();
-  };
-
-  private handleCanvasHover = (event: MouseEvent) => {
-    if (!this.gameInitialized) {
-      return;
-    }
-    this.hoveredCell = this.camera.getCellUnderPointer(event);
-    if (this.planning.isStrokeActive() && this.planning.isActive() && !this.planning.isBuildMode() && this.hoveredCell) {
-      this.planning.continueStrokeAt(this.hoveredCell);
-    }
   };
 
   private showCellTooltip(cellPos: Vec2, event: MouseEvent) {
@@ -1040,75 +565,6 @@ export class Game {
       constructionSite: site,
     });
   }
-
-  private handleCanvasLeave = (event?: MouseEvent) => {
-    if (this.cellTooltip.isPointerOver(event?.relatedTarget)) {
-      return;
-    }
-    this.cellTooltip.hide();
-    this.planning.finishStroke();
-  };
-
-  private hideTooltip = () => {
-    this.cellTooltip.hide();
-  };
-
-  private handleCanvasWheel = (event: WheelEvent) => {
-    if (!this.gameInitialized) {
-      return;
-    }
-    event.preventDefault();
-    this.cellTooltip.hide(); // Hide tooltip on zoom
-    const delta = event.deltaY < 0 ? 0.2 : -0.2;
-    this.camera.adjustZoom(delta);
-  };
-
-  private handleMouseDown = (event: MouseEvent) => {
-    if (!this.gameInitialized) {
-      return;
-    }
-    if (event.button === 0 && this.planning.isActive()) {
-      const cell = this.camera.getCellUnderPointer(event);
-      if (cell) {
-        event.preventDefault();
-        this.cellTooltip.hide();
-        this.planning.suppressNextCanvasClick(); // Ignore the click event fired right after painting.
-        this.planning.startStrokeAt(cell);
-      }
-      return;
-    }
-    if (event.button === 1) {
-      event.preventDefault();
-      this.cellTooltip.hide(); // Hide tooltip on pan start
-      this.camera.startPanning({ x: event.clientX, y: event.clientY });
-    }
-  };
-
-  private handleMouseUp = (event: MouseEvent) => {
-    if (!this.gameInitialized) {
-      return;
-    }
-    if (event.button === 0 && this.planning.isStrokeActive()) {
-      const shouldClearPlanning = this.planning.isActive() && !this.planning.isBuildMode();
-      this.planning.finishStroke(shouldClearPlanning);
-      this.planning.suppressNextCanvasClick();
-    }
-    if (event.button === 1) {
-      this.camera.stopPanning();
-    }
-  };
-
-  private stopPanning = () => {
-    this.camera.stopPanning();
-    this.planning.finishStroke();
-  };
-
-  private handlePanMove = (event: MouseEvent) => {
-    if (!this.gameInitialized) {
-      return;
-    }
-    this.camera.pan({ x: event.clientX, y: event.clientY });
-  };
 
   private setupZoomControls() {
     const hoverAnchor = () => (this.hoveredCell ? { x: this.hoveredCell.x + 0.5, y: this.hoveredCell.y + 0.5 } : null);
@@ -1167,6 +623,8 @@ export class Game {
     this.cellTooltip.destroy();
     this.planning.destroy();
     this.tokens.destroy();
+    this.threats.destroy();
+    this.interactions.destroy();
     // Clear other event listeners if necessary
   }
 
