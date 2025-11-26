@@ -53,10 +53,10 @@ export class InteractionController {
     const { canvas } = this.deps;
     canvas.addEventListener("click", this.handleCanvasClick);
     canvas.addEventListener("mousemove", this.handleCanvasHover);
-    canvas.addEventListener("mousemove", this.handleMouseMove);
     canvas.addEventListener("wheel", this.handleCanvasWheel, { passive: false });
     canvas.addEventListener("mousedown", this.handleMouseDown);
     canvas.addEventListener("mouseleave", this.handleCanvasLeave);
+    window.addEventListener("mousemove", this.handleMouseMove);
     window.addEventListener("mouseup", this.handleMouseUp);
     canvas.addEventListener("touchstart", this.handleTouchStart, { passive: false });
     canvas.addEventListener("touchmove", this.handleTouchMove, { passive: false });
@@ -74,7 +74,7 @@ export class InteractionController {
     const { canvas } = this.deps;
     canvas.removeEventListener("click", this.handleCanvasClick);
     canvas.removeEventListener("mousemove", this.handleCanvasHover);
-    canvas.removeEventListener("mousemove", this.handleMouseMove);
+    window.removeEventListener("mousemove", this.handleMouseMove);
     canvas.removeEventListener("wheel", this.handleCanvasWheel);
     canvas.removeEventListener("mousedown", this.handleMouseDown);
     canvas.removeEventListener("mouseleave", this.handleCanvasLeave);
@@ -124,6 +124,9 @@ export class InteractionController {
    * Handle mouse hover to update cell highlighting and planning strokes
    */
   private handleCanvasHover = (event: MouseEvent) => {
+    if (this.isMousePanning) {
+      return;
+    }
     const simulation = this.deps.getSimulation();
     if (!simulation) {
       return;
@@ -396,10 +399,8 @@ export class InteractionController {
 
   private handleCanvasLeave = (event?: MouseEvent) => {
     this.hideTooltip();
-    this.deps.planning.finishStroke();
-    if (this.isMousePanning) {
-      this.deps.camera.stopPanning();
-      this.isMousePanning = false;
+    if (this.deps.planning.isStrokeActive()) {
+      this.deps.planning.finishStroke();
     }
   };
 

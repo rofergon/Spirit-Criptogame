@@ -7,12 +7,14 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "optimize:png": "node scripts/optimize-pngs.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "oxipng-bin": "^1.0.0",
     "typescript": "^5.9.3",
     "vite": "^7.2.2",
     "vitest": "^2.1.4"

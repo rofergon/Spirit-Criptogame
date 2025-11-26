@@ -10,7 +10,7 @@ import type {
   WorldCell,
 } from "../core/types";
 import type { WorldEngine } from "../core/world/WorldEngine";
-import { createHexGeometry, getHexCenter, traceHexPath } from "./hexGrid";
+import { axialToOffset, createHexGeometry, getHexCenter, pixelToAxial, roundAxial, traceHexPath } from "./hexGrid";
 import type { HexGeometry } from "./hexGrid";
 import { drawTree, drawStone, drawFood, drawWaterSpring, drawStructure, drawCitizenSprite } from "./RenderHelpers";
 
@@ -168,8 +168,15 @@ export class GameRenderer {
     const renderList: RenderItem[] = [];
     const fogTiles: Array<{ center: Vec2; visibility: WorldCell["visibility"] }> = [];
 
-    state.world.cells.forEach((row) =>
-      row.forEach((cell) => {
+    const visibleBounds = this.getVisibleCellBounds(hex, state.view, state.world.size);
+    const { minX, maxX, minY, maxY } = visibleBounds;
+
+    for (let y = minY; y <= maxY; y += 1) {
+      const row = state.world.cells[y];
+      if (!row) continue;
+      for (let x = minX; x <= maxX; x += 1) {
+        const cell = row[x];
+        if (!cell) continue;
         const center = getHexCenter(cell.x, cell.y, hex, offsetX, offsetY);
         const visibility = cell.visibility ?? "visible";
         const isHidden = visibility === "hidden";
@@ -186,7 +193,7 @@ export class GameRenderer {
           center.y + halfHeight < 0 ||
           center.y - halfHeight > canvasHeight
         ) {
-          return;
+          continue;
         }
 
         // 1. Draw Ground
@@ -210,7 +217,7 @@ export class GameRenderer {
         }
 
         if (isHidden) {
-          return;
+          continue;
         }
 
         // 2. Collect Objects
@@ -254,8 +261,8 @@ export class GameRenderer {
             });
           }
         }
-      }),
-    );
+      }
+    }
 
     // Collect Citizens
     state.citizens.forEach((citizen) => {
@@ -303,6 +310,54 @@ export class GameRenderer {
     this.drawProjectiles(state.projectiles, hex, state.view);
     this.drawFogOverlays(fogTiles, hex);
     this.drawNotifications(state.notifications);
+  }
+
+  private getCellAtPixel(screenX: number, screenY: number, hex: HexGeometry, view: ViewMetrics): Vec2 | null {
+    const localX = screenX - view.offsetX;
+    const localY = screenY - view.offsetY;
+    const axial = pixelToAxial(localX, localY, hex);
+    const rounded = roundAxial(axial);
+    const cell = axialToOffset(rounded);
+    const x = Math.round(cell.x);
+    const y = Math.round(cell.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    return { x, y };
+  }
+
+  private getVisibleCellBounds(hex: HexGeometry, view: ViewMetrics, worldSize: number) {
+    const probePoints = [
+      { x: 0, y: 0 },
+      { x: this.canvas.width, y: 0 },
+      { x: 0, y: this.canvas.height },
+      { x: this.canvas.width, y: this.canvas.height },
+      { x: this.canvas.width / 2, y: this.canvas.height / 2 },
+    ];
+
+    let minX = worldSize - 1;
+    let maxX = 0;
+    let minY = worldSize - 1;
+    let maxY = 0;
+    let found = false;
+
+    probePoints.forEach((pt) => {
+      const cell = this.getCellAtPixel(pt.x, pt.y, hex, view);
+      if (!cell) return;
+      found = true;
+      minX = Math.min(minX, cell.x);
+      maxX = Math.max(maxX, cell.x);
+      minY = Math.min(minY, cell.y);
+      maxY = Math.max(maxY, cell.y);
+    });
+
+    const padding = 2 + Math.round(hex.size / 12);
+    const safeMinX = clamp(found ? minX - padding : 0, 0, worldSize - 1);
+    const safeMaxX = clamp(found ? maxX + padding : worldSize - 1, 0, worldSize - 1);
+    const safeMinY = clamp(found ? minY - padding : 0, 0, worldSize - 1);
+    const safeMaxY = clamp(found ? maxY + padding : worldSize - 1, 0, worldSize - 1);
+
+    return { minX: safeMinX, maxX: safeMaxX, minY: safeMinY, maxY: safeMaxY };
   }
 
   private drawProjectiles(projectiles: ProjectileRender[], hex: HexGeometry, view: ViewMetrics) {
