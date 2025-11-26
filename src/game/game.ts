@@ -2,7 +2,7 @@ import { HOURS_PER_SECOND, PRIORITY_KEYMAP, TICK_HOURS, WORLD_SIZE } from "./cor
 import { InputHandler } from "./core/InputHandler";
 import { clamp } from "./core/utils";
 import type { Citizen, PriorityMark, Role, ToastNotification, Vec2 } from "./core/types";
-import { SimulationSession, type ThreatAlert, type SimulationVisualEvent } from "./core/SimulationSession";
+import { SimulationSession, type SimulationVisualEvent } from "./core/SimulationSession";
 import { CameraController } from "./core/CameraController";
 import { HUDController, type HUDSnapshot } from "./ui/HUDController";
 import { CitizenPortraitBarController } from "./ui/CitizenPortraitBar";
@@ -12,7 +12,7 @@ import { MainMenu } from "./ui/MainMenu";
 import { CellTooltipController } from "./ui/CellTooltip";
 import { PlanningController } from "./controllers/PlanningController";
 import { TokenController } from "./controllers/TokenController";
-import { burnHexForRaidBlessing, type BurnResult, type TransactionStatus } from "./wallet/hexConversionService";
+import { ThreatController } from "./controllers/ThreatController";
 
 type AssignableRole = Extract<Role, "farmer" | "worker" | "warrior" | "scout">;
 
@@ -52,17 +52,8 @@ export class Game {
   private readonly devoteeSlotsPerTemple = 3;
   private devoteeTarget = 0;
   private readonly tokens: TokenController;
+  private readonly threats: ThreatController;
   private debugExportButton = document.querySelector<HTMLButtonElement>("#debug-export");
-  private threatModal = document.querySelector<HTMLDivElement>("#threat-modal");
-  private threatBackdrop = document.querySelector<HTMLDivElement>("#threat-modal-backdrop");
-  private threatTitle = document.querySelector<HTMLHeadingElement>("#threat-modal-title");
-  private threatSubtitle = document.querySelector<HTMLParagraphElement>("#threat-modal-subtitle");
-  private threatIcons = document.querySelector<HTMLDivElement>("#threat-modal-icons");
-  private threatCount = document.querySelector<HTMLSpanElement>("#threat-modal-count");
-  private threatFocusButton = document.querySelector<HTMLButtonElement>("#threat-modal-focus");
-  private threatCloseButton = document.querySelector<HTMLButtonElement>("#threat-modal-close");
-  private threatResumeButton = document.querySelector<HTMLButtonElement>("#threat-modal-resume");
-  private threatBurnButton = document.querySelector<HTMLButtonElement>("#threat-modal-burn");
   private extinctionAnnounced = false;
   private gameInitialized = false;
   private readonly camera: CameraController;
@@ -91,10 +82,6 @@ export class Game {
     warrior: 0,
     scout: 0,
   };
-  private lastThreatFocus: Vec2 | null = null;
-  private preThreatWarriors: number[] = [];
-  private blessingApplied = false;
-  private burningHex = false;
   private projectileAnimations: Array<{ from: Vec2; to: Vec2; spawnedAt: number; duration: number }> = [];
   private readonly projectileDurationMs = 650;
 
@@ -122,6 +109,15 @@ export class Game {
       logEvent: (message, notificationType) => this.logEvent(message, notificationType),
       onBalancesChanged: () => this.updateHUD(),
     });
+    this.threats = new ThreatController({
+      hud: this.hud,
+      camera: this.camera,
+      getSimulation: () => this.simulation,
+      onPause: () => this.pause(),
+      onResume: () => this.resume(),
+      onRequestRender: () => this.draw(),
+      playerTribeId: this.playerTribeId,
+    });
     this.camera.setViewTarget({ x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 });
 
     this.hud.setupHeaderButtons(this.handlePauseToggle);
@@ -135,7 +131,7 @@ export class Game {
     this.setupSpeedControls();
     this.planning.init();
     this.tokens.init();
-    this.setupThreatModal();
+    this.threats.init();
     this.bindCanvasEvents();
     this.debugExportButton?.addEventListener("click", this.exportDebugLog);
 
@@ -159,7 +155,7 @@ export class Game {
     this.simulation = new SimulationSession(this.playerTribeId, {
       onLog: (message, notificationType) => this.logEvent(message, notificationType),
       onExtinction: this.handleExtinction,
-      onThreat: this.handleThreatAlert,
+      onThreat: (alert) => this.threats.handleThreat(alert),
     });
     this.simulation.initialize(config);
     this.extinctionAnnounced = false;
@@ -324,31 +320,6 @@ export class Game {
       button.classList.toggle("active", isActive);
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
-  }
-
-  private setupThreatModal() {
-    const close = (resumeAfter?: boolean) => {
-      this.threatModal?.classList.add("hidden");
-      this.threatBackdrop?.classList.add("hidden");
-      if (resumeAfter) {
-        this.resume();
-      }
-    };
-
-    const focus = () => {
-      if (this.lastThreatFocus) {
-        this.camera.focusOn(this.lastThreatFocus);
-      }
-    };
-
-    this.threatBackdrop?.addEventListener("click", () => close(false));
-    this.threatCloseButton?.addEventListener("click", () => close(false));
-    this.threatResumeButton?.addEventListener("click", () => close(true));
-    this.threatFocusButton?.addEventListener("click", () => {
-      focus();
-      this.hud.updateStatus("Centered on threat. Game paused.");
-    });
-    this.threatBurnButton?.addEventListener("click", this.handleThreatBurn);
   }
 
   private handleRoleSliderInput = (event: Event) => {
@@ -588,125 +559,6 @@ export class Game {
     }
   }
 
-  private handleThreatAlert = (alert: ThreatAlert) => {
-    this.burningHex = false;
-    this.preThreatWarriors = this.captureWarriorIds();
-    this.blessingApplied = false;
-    this.pause();
-    this.populateThreatModal(alert);
-    this.focusOnThreat(alert);
-  };
-
-  private populateThreatModal(alert: ThreatAlert) {
-    if (!this.threatModal || !this.threatBackdrop) return;
-    this.threatModal.classList.remove("hidden");
-    this.threatBackdrop.classList.remove("hidden");
-
-    const icon = alert.flavor === "beast" ? "🐺" : alert.icon || "⚔️";
-
-    if (this.threatTitle) {
-      this.threatTitle.textContent = `${icon} ${alert.tribeName} attack`;
-    }
-    if (this.threatSubtitle) {
-      this.threatSubtitle.textContent =
-        alert.flavor === "raid"
-          ? "Hostile raiders have appeared at the edge of your lands."
-          : "Wild beasts have entered the valley. Prepare defenses.";
-    }
-    if (this.threatCount) {
-      this.threatCount.textContent = `${alert.attackers} enemy units detected`;
-    }
-    if (this.threatIcons) {
-      this.threatIcons.innerHTML = "";
-      const count = Math.min(alert.attackers, 12);
-      for (let i = 0; i < count; i += 1) {
-        const badge = document.createElement("span");
-        badge.className = "threat-icon";
-        badge.textContent = icon;
-        this.threatIcons.appendChild(badge);
-      }
-    }
-    if (this.threatBurnButton) {
-      this.threatBurnButton.textContent = this.blessingApplied ? "Blessing applied" : "Burn 20 HEX & bless warriors";
-      this.threatBurnButton.disabled = this.blessingApplied || this.burningHex;
-    }
-    this.hud.updateStatus("⚠️ Invasion detected. Game paused.");
-  }
-
-  private focusOnThreat(alert: ThreatAlert) {
-    if (!alert.spawn || alert.spawn.length === 0) {
-      this.lastThreatFocus = null;
-      return;
-    }
-    const center = alert.spawn.reduce(
-      (acc, pos) => ({ x: acc.x + pos.x, y: acc.y + pos.y }),
-      { x: 0, y: 0 },
-    );
-    const focusPoint = {
-      x: center.x / alert.spawn.length,
-      y: center.y / alert.spawn.length,
-    };
-    this.lastThreatFocus = focusPoint;
-    this.camera.focusOn(focusPoint);
-    this.draw();
-  }
-
-  private handleThreatBurn = async () => {
-    if (this.burningHex || this.blessingApplied) return;
-    this.burningHex = true;
-    if (this.threatBurnButton) {
-      this.threatBurnButton.disabled = true;
-      this.threatBurnButton.textContent = "Burning 20 HEX...";
-    }
-    const statusUpdate = (status: TransactionStatus, message?: string) => {
-      if (message) {
-        this.hud.updateStatus(message);
-      }
-    };
-    const result: BurnResult = await burnHexForRaidBlessing(statusUpdate);
-    this.burningHex = false;
-    if (this.threatBurnButton) {
-      this.threatBurnButton.textContent = this.blessingApplied ? "Blessing applied" : "Burn 20 HEX & bless warriors";
-      this.threatBurnButton.disabled = this.blessingApplied;
-    }
-    if (!result.success) {
-      this.hud.updateStatus(result.error ?? "HEX burn failed.");
-      this.hud.showNotification(result.error ?? "HEX burn failed", "critical");
-      return;
-    }
-    this.applyWarriorBlessing();
-    this.hud.showNotification("HEX burned. Warriors blessed with +20% resistance.", "success");
-  };
-
-  private captureWarriorIds() {
-    if (!this.simulation) return [];
-    return this.simulation
-      .getCitizenSystem()
-      .getCitizens()
-      .filter((c) => c.state === "alive" && c.role === "warrior" && c.tribeId === this.playerTribeId)
-      .map((c) => c.id);
-  }
-
-  private applyWarriorBlessing() {
-    if (!this.simulation) return;
-    const citizens = this.simulation.getCitizenSystem().getCitizens();
-    let boosted = 0;
-    for (const citizen of citizens) {
-      if (citizen.state !== "alive") continue;
-      if (citizen.role !== "warrior") continue;
-      if (!this.preThreatWarriors.includes(citizen.id)) continue;
-      citizen.damageResistance = Math.max(citizen.damageResistance ?? 0, 0.2);
-      citizen.health = clamp(citizen.health * 1.2, -50, 100);
-      citizen.hexBlessed = true;
-      boosted += 1;
-    }
-    this.hud.updateStatus(
-      boosted > 0
-        ? `🔥 Warriors blessed: ${boosted} reinforced with +20% resistance.`
-        : "No existing warriors to bless.",
-    );
-    this.blessingApplied = boosted > 0;
-  }
   private loop = (time: number) => {
     if (!this.running) return;
 

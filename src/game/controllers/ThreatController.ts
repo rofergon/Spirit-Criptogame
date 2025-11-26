@@ -1,0 +1,196 @@
+import { clamp } from "../core/utils";
+import type { Vec2 } from "../core/types";
+import type { SimulationSession, ThreatAlert } from "../core/SimulationSession";
+import type { HUDController } from "../ui/HUDController";
+import type { CameraController } from "../core/CameraController";
+import { burnHexForRaidBlessing, type BurnResult, type TransactionStatus } from "../wallet/hexConversionService";
+
+interface ThreatDependencies {
+  hud: HUDController;
+  camera: CameraController;
+  getSimulation: () => SimulationSession | null;
+  onPause: () => void;
+  onResume: () => void;
+  onRequestRender: () => void;
+  playerTribeId: number;
+}
+
+export class ThreatController {
+  private threatModal = document.querySelector<HTMLDivElement>("#threat-modal");
+  private threatBackdrop = document.querySelector<HTMLDivElement>("#threat-modal-backdrop");
+  private threatTitle = document.querySelector<HTMLHeadingElement>("#threat-modal-title");
+  private threatSubtitle = document.querySelector<HTMLParagraphElement>("#threat-modal-subtitle");
+  private threatIcons = document.querySelector<HTMLDivElement>("#threat-modal-icons");
+  private threatCount = document.querySelector<HTMLSpanElement>("#threat-modal-count");
+  private threatFocusButton = document.querySelector<HTMLButtonElement>("#threat-modal-focus");
+  private threatCloseButton = document.querySelector<HTMLButtonElement>("#threat-modal-close");
+  private threatResumeButton = document.querySelector<HTMLButtonElement>("#threat-modal-resume");
+  private threatBurnButton = document.querySelector<HTMLButtonElement>("#threat-modal-burn");
+
+  private lastThreatFocus: Vec2 | null = null;
+  private preThreatWarriors: number[] = [];
+  private blessingApplied = false;
+  private burningHex = false;
+
+  constructor(private readonly deps: ThreatDependencies) {}
+
+  init() {
+    this.setupThreatModal();
+  }
+
+  destroy() {
+    this.hideModal();
+  }
+
+  handleThreat(alert: ThreatAlert) {
+    this.burningHex = false;
+    this.preThreatWarriors = this.captureWarriorIds();
+    this.blessingApplied = false;
+    this.deps.onPause();
+    this.populateThreatModal(alert);
+    this.focusOnThreat(alert);
+  }
+
+  private setupThreatModal() {
+    const close = (resumeAfter?: boolean) => {
+      this.hideModal();
+      if (resumeAfter) {
+        this.deps.onResume();
+      }
+    };
+
+    const focus = () => {
+      if (this.lastThreatFocus) {
+        this.deps.camera.focusOn(this.lastThreatFocus);
+      }
+      this.deps.onRequestRender();
+    };
+
+    this.threatBackdrop?.addEventListener("click", () => close(false));
+    this.threatCloseButton?.addEventListener("click", () => close(false));
+    this.threatResumeButton?.addEventListener("click", () => close(true));
+    this.threatFocusButton?.addEventListener("click", () => {
+      focus();
+      this.deps.hud.updateStatus("Centered on threat. Game paused.");
+    });
+    this.threatBurnButton?.addEventListener("click", this.handleThreatBurn);
+  }
+
+  private hideModal() {
+    this.threatModal?.classList.add("hidden");
+    this.threatBackdrop?.classList.add("hidden");
+  }
+
+  private populateThreatModal(alert: ThreatAlert) {
+    if (!this.threatModal || !this.threatBackdrop) return;
+    this.threatModal.classList.remove("hidden");
+    this.threatBackdrop.classList.remove("hidden");
+
+    const icon = alert.flavor === "beast" ? "🐺" : alert.icon || "⚔️";
+
+    if (this.threatTitle) {
+      this.threatTitle.textContent = `${icon} ${alert.tribeName} attack`;
+    }
+    if (this.threatSubtitle) {
+      this.threatSubtitle.textContent =
+        alert.flavor === "raid"
+          ? "Hostile raiders have appeared at the edge of your lands."
+          : "Wild beasts have entered the valley. Prepare defenses.";
+    }
+    if (this.threatCount) {
+      this.threatCount.textContent = `${alert.attackers} enemy units detected`;
+    }
+    if (this.threatIcons) {
+      this.threatIcons.innerHTML = "";
+      const count = Math.min(alert.attackers, 12);
+      for (let i = 0; i < count; i += 1) {
+        const badge = document.createElement("span");
+        badge.className = "threat-icon";
+        badge.textContent = icon;
+        this.threatIcons.appendChild(badge);
+      }
+    }
+    if (this.threatBurnButton) {
+      this.threatBurnButton.textContent = this.blessingApplied ? "Blessing applied" : "Burn 20 HEX & bless warriors";
+      this.threatBurnButton.disabled = this.blessingApplied || this.burningHex;
+    }
+    this.deps.hud.updateStatus("⚠️ Invasion detected. Game paused.");
+  }
+
+  private focusOnThreat(alert: ThreatAlert) {
+    if (!alert.spawn || alert.spawn.length === 0) {
+      this.lastThreatFocus = null;
+      return;
+    }
+    const center = alert.spawn.reduce(
+      (acc, pos) => ({ x: acc.x + pos.x, y: acc.y + pos.y }),
+      { x: 0, y: 0 },
+    );
+    const focusPoint = {
+      x: center.x / alert.spawn.length,
+      y: center.y / alert.spawn.length,
+    };
+    this.lastThreatFocus = focusPoint;
+    this.deps.camera.focusOn(focusPoint);
+    this.deps.onRequestRender();
+  }
+
+  private handleThreatBurn = async () => {
+    if (this.burningHex || this.blessingApplied) return;
+    this.burningHex = true;
+    if (this.threatBurnButton) {
+      this.threatBurnButton.disabled = true;
+      this.threatBurnButton.textContent = "Burning 20 HEX...";
+    }
+    const statusUpdate = (status: TransactionStatus, message?: string) => {
+      if (message) {
+        this.deps.hud.updateStatus(message);
+      }
+    };
+    const result: BurnResult = await burnHexForRaidBlessing(statusUpdate);
+    this.burningHex = false;
+    if (this.threatBurnButton) {
+      this.threatBurnButton.textContent = this.blessingApplied ? "Blessing applied" : "Burn 20 HEX & bless warriors";
+      this.threatBurnButton.disabled = this.blessingApplied;
+    }
+    if (!result.success) {
+      this.deps.hud.updateStatus(result.error ?? "HEX burn failed.");
+      this.deps.hud.showNotification(result.error ?? "HEX burn failed", "critical");
+      return;
+    }
+    this.applyWarriorBlessing();
+    this.deps.hud.showNotification("HEX burned. Warriors blessed with +20% resistance.", "success");
+  };
+
+  private captureWarriorIds() {
+    const simulation = this.deps.getSimulation();
+    if (!simulation) return [];
+    return simulation
+      .getCitizenSystem()
+      .getCitizens()
+      .filter((c) => c.state === "alive" && c.role === "warrior" && c.tribeId === this.deps.playerTribeId)
+      .map((c) => c.id);
+  }
+
+  private applyWarriorBlessing() {
+    const simulation = this.deps.getSimulation();
+    if (!simulation) return;
+    const citizens = simulation.getCitizenSystem().getCitizens();
+    let boosted = 0;
+    for (const citizen of citizens) {
+      if (citizen.state !== "alive") continue;
+      if (citizen.role !== "warrior") continue;
+      if (!this.preThreatWarriors.includes(citizen.id)) continue;
+      citizen.damageResistance = Math.max(citizen.damageResistance ?? 0, 0.2);
+      citizen.health = clamp(citizen.health * 1.2, -50, 100);
+      citizen.hexBlessed = true;
+      boosted += 1;
+    }
+    this.deps.hud.updateStatus(
+      boosted > 0
+        ? `🔥 Warriors blessed: ${boosted} reinforced with +20% resistance.`
+        : "No existing warriors to bless.",
+    );
+    this.blessingApplied = boosted > 0;
+  }
+}
