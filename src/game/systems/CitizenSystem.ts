@@ -194,7 +194,7 @@ export class CitizenSystem {
         icon: "🐺",
         flavor: "beast",
       });
-      this.emit({ type: "log", message: "Bestias salvajes merodean la frontera." });
+      this.emit({ type: "log", message: "Wild beasts prowl the border." });
     }
   }
 

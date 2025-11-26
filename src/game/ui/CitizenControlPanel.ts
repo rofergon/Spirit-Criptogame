@@ -51,6 +51,10 @@ export class CitizenControlPanelController {
         }
     }
 
+    private isBeast(citizen: Citizen) {
+        return citizen.currentGoal === "beast" || citizen.tribeId === 120;
+    }
+
     private render() {
         if (!this.container || !this.currentCitizen) return;
         this.buildPanel();
@@ -60,9 +64,11 @@ export class CitizenControlPanelController {
         this.lastRenderSignature = signature;
 
         const c = this.currentCitizen;
-        const roleIcon = this.getRoleIcon(c.role);
-        const roleLabel = this.getRoleLabel(c.role);
+        const beast = this.isBeast(c);
+        const roleIcon = beast ? "🐺" : this.getRoleIcon(c.role);
+        const roleLabel = beast ? "Beast" : this.getRoleLabel(c.role);
         const stateIcon = c.state === "dead" ? "☠️" : "🟢";
+        const namePrefix = beast ? "Beast" : c.tribeId === 1 ? "Villager" : "Raider";
 
         // Calculate percentages
         const healthPct = Math.floor(c.health);
@@ -71,7 +77,7 @@ export class CitizenControlPanelController {
         const moralePct = Math.floor(c.morale);
 
         if (this.roleIconEl) this.roleIconEl.textContent = roleIcon;
-        if (this.nameLabelEl) this.nameLabelEl.textContent = `Villager #${c.id} `;
+        if (this.nameLabelEl) this.nameLabelEl.textContent = `${namePrefix} #${c.id} `;
         if (this.stateEl) this.stateEl.textContent = stateIcon;
         if (this.roleEl) this.roleEl.textContent = `${roleLabel} · ${Math.floor(c.age)} years`;
 

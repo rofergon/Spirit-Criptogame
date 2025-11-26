@@ -88,9 +88,9 @@ export class SimulationSession {
 
     this.initialized = true;
 
-    this.log(`🌍 Mundo generado con semilla: ${config.seed}`, "info");
-    this.log(`📏 Tamaño: ${config.worldSize}x${config.worldSize}`, "info");
-    this.log(`⚔️ Dificultad: ${config.difficulty}`, "info");
+    this.log(`🌍 World generated with seed: ${config.seed}`, "info");
+    this.log(`📏 Size: ${config.worldSize}x${config.worldSize}`, "info");
+    this.log(`⚔️ Difficulty: ${config.difficulty}`, "info");
   }
 
   runTick(tickHours: number, options: RunTickOptions = {}) {
@@ -119,18 +119,18 @@ export class SimulationSession {
 
   planConstruction(type: StructureType, anchor: Vec2) {
     if (!this.initialized) {
-      return { ok: false as const, reason: "El mundo no está listo." };
+      return { ok: false as const, reason: "World is not ready." };
     }
     const available = this.getAvailableStructures();
     if (!available.includes(type)) {
-      return { ok: false as const, reason: "Estructura bloqueada." };
+      return { ok: false as const, reason: "Structure is locked." };
     }
     const result = this.world.planStructure(type, anchor);
     if (!result.ok) {
-      this.log(`No se pudo planificar ${type}: ${result.reason}`);
+      this.log(`Could not plan ${type}: ${result.reason}`);
       return result;
     }
-    this.log(`Se ha trazado el plano de ${type} en (${anchor.x},${anchor.y}).`, "info");
+    this.log(`Blueprint placed for ${type} at (${anchor.x},${anchor.y}).`, "info");
     return result;
   }
 
@@ -195,7 +195,7 @@ export class SimulationSession {
   clearPriorityAt(position: Vec2) {
     if (!this.initialized) return { ok: false as const, reason: "Simulation not running." };
     this.world.setPriorityAt(position.x, position.y, "none");
-    this.log(`Se ha eliminado la designación en (${position.x}, ${position.y}).`, "info");
+    this.log(`Designation cleared at (${position.x}, ${position.y}).`, "info");
     return { ok: true as const };
   }
 
@@ -216,10 +216,10 @@ export class SimulationSession {
     const woodReturned = result.refunded.wood > 0 ? this.world.deposit("wood", result.refunded.wood) : 0;
 
     const reclaimed = [];
-    if (stoneReturned > 0) reclaimed.push(`${stoneReturned} piedra`);
-    if (woodReturned > 0) reclaimed.push(`${woodReturned} madera`);
-    const reclaimedText = reclaimed.length > 0 ? ` Recursos recuperados: ${reclaimed.join(", ")}.` : "";
-    this.log(`Se canceló la construcción de ${site.type}. Los aldeanos recogerán los materiales.${reclaimedText}`, "info");
+    if (stoneReturned > 0) reclaimed.push(`${stoneReturned} stone`);
+    if (woodReturned > 0) reclaimed.push(`${woodReturned} wood`);
+    const reclaimedText = reclaimed.length > 0 ? ` Recovered: ${reclaimed.join(", ")}.` : "";
+    this.log(`Construction of ${site.type} canceled. Villagers will recover the materials.${reclaimedText}`, "info");
 
     return { ok: true as const, stoneReturned, woodReturned, siteType: site.type };
   }
@@ -229,7 +229,7 @@ export class SimulationSession {
       this.climate.droughtTimer -= tickHours;
       if (this.climate.droughtTimer <= 0) {
         this.climate.drought = false;
-        this.log("La sequía termina.");
+        this.log("The drought ends.");
       }
     } else {
       this.nextEventTimer -= tickHours;
@@ -239,7 +239,7 @@ export class SimulationSession {
       this.climate.rainyTimer -= tickHours;
       if (this.climate.rainyTimer <= 0) {
         this.climate.rainy = false;
-        this.log("Las lluvias menguan.");
+        this.log("The rains fade.");
       }
     }
 
@@ -254,13 +254,13 @@ export class SimulationSession {
     if (roll < 0.4) {
       this.climate.drought = true;
       this.climate.droughtTimer = 16 + Math.random() * 10;
-      this.log("Una sequía azota la comarca.");
+      this.log("A drought scorches the land.");
       return;
     }
     if (roll < 0.7) {
       this.climate.rainy = true;
       this.climate.rainyTimer = 10 + Math.random() * 8;
-      this.log("Nubes cargadas bendicen con lluvia.");
+      this.log("Heavy clouds bring rain.");
       return;
     }
     if (roll < 0.85) {
@@ -362,7 +362,7 @@ export class SimulationSession {
       const target = this.pickTowerTarget(tower, hostiles);
       if (!target) return;
 
-      this.citizenSystem.applyRangedDamage(target.id, this.towerDamage, "flecha de torre");
+    this.citizenSystem.applyRangedDamage(target.id, this.towerDamage, "tower arrow");
       this.visualEvents.push({
         type: "towerProjectile",
         from: { x: tower.x, y: tower.y },

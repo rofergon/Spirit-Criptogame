@@ -14,6 +14,8 @@ import { createHexGeometry, getHexCenter, traceHexPath } from "./hexGrid";
 import type { HexGeometry } from "./hexGrid";
 import { drawTree, drawStone, drawFood, drawWaterSpring, drawStructure, drawCitizenSprite } from "./RenderHelpers";
 
+const isBeastCitizen = (citizen: Citizen) => citizen.currentGoal === "beast" || citizen.tribeId === 120;
+
 type TextureResources = {
   textures: Record<string, HTMLImageElement[]>;
   hexFrame: HTMLImageElement | null;
@@ -507,7 +509,7 @@ export class GameRenderer {
     const ctx = this.ctx;
 
     // Render beasts with a clear wolf marker so they differ from human warriors
-    const isBeast = citizen.currentGoal === "beast" || citizen.tribeId === 120;
+    const isBeast = isBeastCitizen(citizen);
     if (isBeast) {
       const size = hex.size * 0.9;
       ctx.save();

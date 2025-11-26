@@ -26,10 +26,16 @@ export class Game {
   private readonly input = new InputHandler();
   private mainMenu: MainMenu;
   private readonly renderer: GameRenderer;
+
+  // Player identification
+  private readonly playerTribeId = 1;
   
   // UI Controllers
   private readonly hud = new HUDController();
-  private readonly portraitBar = new CitizenPortraitBarController({ onSelectCitizen: (id) => this.handleCitizenSelection(id) });
+  private readonly portraitBar = new CitizenPortraitBarController({
+    onSelectCitizen: (id) => this.handleCitizenSelection(id),
+    playerTribeId: this.playerTribeId,
+  });
   private readonly citizenPanel = new CitizenControlPanelController({ onClose: () => this.handlePanelClose() });
   private readonly cellTooltip: CellTooltipController;
   
@@ -37,9 +43,6 @@ export class Game {
   private readonly planning: PlanningController;
   private readonly roles: RoleController;
   private readonly interactions: InteractionController;
-  
-  // Player identification
-  private readonly playerTribeId = 1;
   
   // Core simulation session
   private simulation: SimulationSession | null = null;
@@ -412,7 +415,9 @@ export class Game {
     const citizenSystem = this.simulation.getCitizenSystem();
     const world = this.simulation.getWorld();
     const citizens = citizenSystem.getCitizens();
-    const livingPopulation = citizens.filter((citizen) => citizen.state === "alive").length;
+    const livingPopulation = citizens.filter(
+      (citizen) => citizen.state === "alive" && citizen.tribeId === this.playerTribeId,
+    ).length;
     const tokenSnapshot = this.tokens.getTokenSnapshot() ?? this.simulation.getTokens();
     const hudSnapshot: HUDSnapshot = {
       faith: this.simulation.getFaithSnapshot(),

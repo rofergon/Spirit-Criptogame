@@ -2,6 +2,7 @@ import type { Citizen } from "../core/types";
 
 type CitizenPortraitBarOptions = {
     onSelectCitizen: (citizenId: number) => void;
+    playerTribeId?: number;
 };
 
 export class CitizenPortraitBarController {
@@ -16,7 +17,8 @@ export class CitizenPortraitBarController {
     update(citizens: Citizen[], selectedCitizenId: number | null) {
         if (!this.container) return;
 
-        const aliveCitizens = citizens.filter((c) => c.state === "alive");
+        const playerTribeId = this.options.playerTribeId ?? 1;
+        const aliveCitizens = citizens.filter((c) => c.state === "alive" && c.tribeId === playerTribeId);
 
         if (aliveCitizens.length === 0) {
             this.container.textContent = "No living citizens";
@@ -123,12 +125,12 @@ export class CitizenPortraitBarController {
 
     private getRoleLabel(role: Citizen["role"]): string {
         const labels: Record<Citizen["role"], string> = {
-            worker: "Trabajador",
-            farmer: "Granjero",
-            warrior: "Guerrero",
-            scout: "Explorador",
-            child: "Niño",
-            elder: "Anciano",
+            worker: "Worker",
+            farmer: "Farmer",
+            warrior: "Warrior",
+            scout: "Scout",
+            child: "Child",
+            elder: "Elder",
         };
         return labels[role];
     }

@@ -133,7 +133,7 @@ export class CitizenActionExecutor {
     const spawn = this.hooks.createCitizen("child", citizen.x, citizen.y, citizen.tribeId);
     spawn.hunger = 10;
     this.hooks.addCitizen(spawn);
-    this.hooks.emit({ type: "log", message: "Ha nacido un nuevo niño en la tribu." });
+    this.hooks.emit({ type: "log", message: "A new child has been born in the tribe." });
   }
 
   private tendCrop(citizen: Citizen, x: number, y: number, tickHours: number) {
