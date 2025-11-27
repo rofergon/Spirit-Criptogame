@@ -86,9 +86,6 @@ All game smart contracts (HEX Token, THERON Token, Land NFTs, and Store) are dep
 ### Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/rofergon/carpeta-con-juan.git
-cd carpeta-con-juan
 
 # Install dependencies
 npm install
