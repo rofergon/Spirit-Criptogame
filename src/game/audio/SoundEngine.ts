@@ -99,6 +99,10 @@ export class SoundEngine {
     this.current = target;
 
     const played = await this.tryPlay(name, opts);
+    if (this.current !== target) {
+      return;
+    }
+
     if (!played) {
       if (previous) {
         previous.pause();
@@ -124,6 +128,10 @@ export class SoundEngine {
     this.current = this.menuTrack;
 
     const played = await this.tryPlay("menu", opts);
+    if (this.current !== this.menuTrack) {
+      return;
+    }
+
     if (!played) {
       if (previous) {
         previous.pause();
