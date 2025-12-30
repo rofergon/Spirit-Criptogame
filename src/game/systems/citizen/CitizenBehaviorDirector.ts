@@ -61,7 +61,7 @@ export class CitizenBehaviorDirector {
   private evaluateUrgentNeed(citizen: Citizen, view: WorldView): CitizenAction | null {
     const continuingRest = citizen.currentGoal === "resting" && citizen.fatigue > REST_STOP_FATIGUE;
     if (citizen.currentGoal === "resting" && citizen.fatigue <= REST_STOP_FATIGUE) {
-      delete citizen.currentGoal;
+      citizen.currentGoal = undefined;
     }
 
     if (citizen.health < 25 && view.villageCenter) {
@@ -87,7 +87,7 @@ export class CitizenBehaviorDirector {
     if (citizen.forceStore && activeGatherEngine) {
       const hasCargo = citizen.carrying.food > 0 || citizen.carrying.stone > 0 || citizen.carrying.wood > 0;
       if (!hasCargo) {
-        delete citizen.forceStore;
+        citizen.forceStore = undefined;
       } else {
         const target = activeGatherEngine.findStorageTarget(citizen, view);
         const atStorage = citizen.x === target.x && citizen.y === target.y;
