@@ -1,6 +1,6 @@
 import "./style.css";
 import { Game } from "./game/game";
-import "./game/wallet/walletConfig";
+import "./config/wagmi";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 
