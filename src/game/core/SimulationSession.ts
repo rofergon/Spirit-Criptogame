@@ -61,6 +61,8 @@ export class SimulationSession {
   private readonly towerAttackRange = 4;
   private readonly warriorBaseDamage = 15;
   private readonly towerDamage = Math.max(1, Math.round(this.warriorBaseDamage / 2));
+  private readonly towerCooldown = 2; // Towers attack every 2 hours
+  private towerCooldownTimer = 0;
   private visualEvents: SimulationVisualEvent[] = [];
   private threatActive = false;
 
@@ -121,9 +123,17 @@ export class SimulationSession {
     this.checkExtinction();
   }
 
-  applyPriority(priority: PriorityMark) {
-
+  applyPriority(priority: PriorityMark, position?: Vec2) {
     if (!this.initialized) return;
+    if (!position) return;
+
+    const cell = this.world.getCell(position.x, position.y);
+    if (!cell) return;
+
+    // Don't set priority on non-walkable terrain
+    if (!this.world.isWalkable(position.x, position.y)) return;
+
+    this.world.setPriorityAt(position.x, position.y, priority);
   }
 
 
@@ -199,6 +209,7 @@ export class SimulationSession {
   getResourceTrendAverage(type: keyof ResourceTrend) {
     if (this.resourceHistory.length === 0) return 0;
     const recent = this.resourceHistory.slice(-5);
+    if (recent.length === 0) return 0; // Safety check for division by zero
     const sum = recent.reduce((acc, trend) => acc + trend[type], 0);
     return sum / recent.length;
   }
@@ -375,7 +386,12 @@ export class SimulationSession {
     this.hooks.onLog?.(message, notificationType);
   }
 
-  private resolveTowerAttacks() {
+  private resolveTowerAttacks(tickHours: number) {
+    // Tower cooldown: towers only attack once every towerCooldown hours
+    this.towerCooldownTimer += tickHours;
+    if (this.towerCooldownTimer < this.towerCooldown) return;
+    this.towerCooldownTimer = 0;
+
     const towers = this.world.getStructures().filter((structure) => structure.type === "tower");
     if (towers.length === 0) return;
 
@@ -384,11 +400,15 @@ export class SimulationSession {
     );
     if (hostiles.length === 0) return;
 
+    // Track which enemies have been targeted this tick to distribute attacks
+    const targetedThisTick = new Set<number>();
+
     towers.forEach((tower) => {
-      const target = this.pickTowerTarget(tower, hostiles);
+      const target = this.pickTowerTarget(tower, hostiles, targetedThisTick);
       if (!target) return;
 
-    this.citizenSystem.applyRangedDamage(target.id, this.towerDamage, "tower arrow");
+      targetedThisTick.add(target.id);
+      this.citizenSystem.applyRangedDamage(target.id, this.towerDamage, "tower arrow");
       this.visualEvents.push({
         type: "towerProjectile",
         from: { x: tower.x, y: tower.y },
@@ -397,18 +417,29 @@ export class SimulationSession {
     });
   }
 
-  private pickTowerTarget(tower: { x: number; y: number }, hostiles: Citizen[]) {
+  private pickTowerTarget(tower: { x: number; y: number }, hostiles: Citizen[], alreadyTargeted: Set<number>) {
     let selected: Citizen | null = null;
     let bestDistance = Infinity;
+    let selectedIsAlreadyTargeted = false;
 
     for (const hostile of hostiles) {
       if (hostile.state === "dead") continue;
       const distance = Math.abs(hostile.x - tower.x) + Math.abs(hostile.y - tower.y);
       if (distance > this.towerAttackRange) continue;
 
-      if (!selected || distance < bestDistance || (distance === bestDistance && hostile.health < selected.health)) {
+      const isTargeted = alreadyTargeted.has(hostile.id);
+
+      // Prefer untargeted enemies, then closest, then lowest health
+      const shouldSelect =
+        !selected ||
+        (selectedIsAlreadyTargeted && !isTargeted) ||
+        (!selectedIsAlreadyTargeted === !isTargeted && distance < bestDistance) ||
+        (!selectedIsAlreadyTargeted === !isTargeted && distance === bestDistance && hostile.health < selected.health);
+
+      if (shouldSelect) {
         selected = hostile;
         bestDistance = distance;
+        selectedIsAlreadyTargeted = isTargeted;
       }
     }
 
