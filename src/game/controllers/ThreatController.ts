@@ -105,6 +105,10 @@ export class ThreatController {
    * Set up modal button event handlers
    */
   private setupThreatModal() {
+    // Warn about missing DOM elements in development
+    if (!this.threatModal) console.warn("[ThreatController] #threat-modal not found");
+    if (!this.threatBurnButton) console.warn("[ThreatController] #threat-modal-burn not found");
+
     // Store handlers as class properties for cleanup in destroy()
     this.boundHandlers.backdropClick = () => this.hideModal();
     this.boundHandlers.closeClick = () => this.hideModal();
