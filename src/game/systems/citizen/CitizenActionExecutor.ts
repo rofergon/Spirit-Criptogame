@@ -279,6 +279,8 @@ export class CitizenActionExecutor {
         return `busca pareja ${action.partnerId}`;
       case "tendCrops":
         return `atiende cultivos en ${formatCoords(action.x, action.y)}`;
+      case "construct":
+        return `construye en sitio ${action.siteId}`;
       default:
         return "acción desconocida";
     }
@@ -304,6 +306,8 @@ export class CitizenActionExecutor {
         return `mate:${action.partnerId}`;
       case "tendCrops":
         return `tend:${action.x},${action.y}`;
+      case "construct":
+        return `construct:${action.siteId}`;
       default:
         return "unknown";
     }
