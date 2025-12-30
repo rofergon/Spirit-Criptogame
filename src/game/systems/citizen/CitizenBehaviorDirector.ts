@@ -19,9 +19,54 @@ export type BehaviorDecision = {
   source: string;
 };
 
-let activeDirector: CitizenBehaviorDirector | null = null;
-let activeGatherEngine: ResourceCollectionEngine | null = null;
-let activeTaskManager: CellTaskManager | null = null;
+/**
+ * Singleton state manager for behavior director.
+ * Provides thread-safe access to shared resources for AI functions.
+ */
+class BehaviorContext {
+  private static instance: BehaviorContext | null = null;
+  private director: CitizenBehaviorDirector | null = null;
+  private gatherEngine: ResourceCollectionEngine | null = null;
+  private taskManager: CellTaskManager | null = null;
+
+  private constructor() { }
+
+  static getInstance(): BehaviorContext {
+    if (!BehaviorContext.instance) {
+      BehaviorContext.instance = new BehaviorContext();
+    }
+    return BehaviorContext.instance;
+  }
+
+  setContext(director: CitizenBehaviorDirector, gatherEngine: ResourceCollectionEngine, taskManager: CellTaskManager) {
+    this.director = director;
+    this.gatherEngine = gatherEngine;
+    this.taskManager = taskManager;
+  }
+
+  getDirector(): CitizenBehaviorDirector | null {
+    return this.director;
+  }
+
+  getGatherEngine(): ResourceCollectionEngine | null {
+    return this.gatherEngine;
+  }
+
+  getTaskManager(): CellTaskManager | null {
+    return this.taskManager;
+  }
+
+  clear() {
+    this.director = null;
+    this.gatherEngine = null;
+    this.taskManager = null;
+  }
+}
+
+// Convenience accessors for backwards compatibility
+const getActiveDirector = () => BehaviorContext.getInstance().getDirector();
+const getActiveGatherEngine = () => BehaviorContext.getInstance().getGatherEngine();
+const getActiveTaskManager = () => BehaviorContext.getInstance().getTaskManager();
 
 export class CitizenBehaviorDirector {
   private readonly aiDispatch: Record<Role, CitizenAI>;
@@ -37,10 +82,10 @@ export class CitizenBehaviorDirector {
       child: passiveAI,
       elder: passiveAI,
     };
-    activeDirector = this;
-    activeGatherEngine = this.resourceEngine;
-    activeTaskManager = this.taskManager;
+    // Register this director in the singleton context
+    BehaviorContext.getInstance().setContext(this, this.resourceEngine, this.taskManager);
   }
+
 
   decideAction(citizen: Citizen, view: WorldView): BehaviorDecision {
     const urgent = this.evaluateUrgentNeed(citizen, view);
@@ -84,12 +129,12 @@ export class CitizenBehaviorDirector {
     }
 
     // After forced role reassignment, ensure any carried resources are dropped off first
-    if (citizen.forceStore && activeGatherEngine) {
+    if (citizen.forceStore && getActiveGatherEngine()) {
       const hasCargo = citizen.carrying.food > 0 || citizen.carrying.stone > 0 || citizen.carrying.wood > 0;
       if (!hasCargo) {
         citizen.forceStore = undefined;
       } else {
-        const target = activeGatherEngine.findStorageTarget(citizen, view);
+        const target = getActiveGatherEngine()!.findStorageTarget(citizen, view);
         const atStorage = citizen.x === target.x && citizen.y === target.y;
         if (atStorage) {
           return { type: "storeResources" };
@@ -159,12 +204,12 @@ export class CitizenBehaviorDirector {
     if (needed <= 0) return null;
 
     // If there is food in storage, go pick it up
-    const world = activeDirector?.world;
+    const world = getActiveDirector()?.world;
     const storageFood = world?.stockpile.food ?? 0;
     const isHungry = citizen.hunger > 75 || citizen.carrying.food === 0;
     const stockIsComfortable = storageFood >= desired * 3;
-    if ((isHungry || stockIsComfortable) && storageFood > 0 && activeGatherEngine) {
-      const storageTarget = activeGatherEngine.findStorageTarget(citizen, view);
+    if ((isHungry || stockIsComfortable) && storageFood > 0 && getActiveGatherEngine()) {
+      const storageTarget = getActiveGatherEngine()!.findStorageTarget(citizen, view);
       const atStorage = citizen.x === storageTarget.x && citizen.y === storageTarget.y;
       if (atStorage) {
         return { type: "refillFood", amount: needed };
@@ -173,9 +218,9 @@ export class CitizenBehaviorDirector {
     }
 
     // Farmers try to grab food directly from fields when storage is empty
-    if (citizen.role === "farmer" && activeGatherEngine) {
+    if (citizen.role === "farmer" && getActiveGatherEngine()) {
       citizen.pendingFoodReserve = true;
-      return activeGatherEngine.runGathererBrain(citizen, view, "food");
+      return getActiveGatherEngine()!.runGathererBrain(citizen, view, "food");
     }
 
     return null;
@@ -304,7 +349,7 @@ const collectFarmTasks = (view: WorldView, world?: WorldEngine | null): CellTask
 };
 
 const isFarmCellBlocked = (task: CellTask, citizen: Citizen, view: WorldView) => {
-  if (activeTaskManager?.isReservedByOther(task.x, task.y, citizen.id)) {
+  if (getActiveTaskManager()?.isReservedByOther(task.x, task.y, citizen.id)) {
     return true;
   }
   return view.nearbyCitizens.some((other) => {
@@ -317,10 +362,10 @@ const isFarmCellBlocked = (task: CellTask, citizen: Citizen, view: WorldView) =>
 };
 
 const selectFarmTask = (citizen: Citizen, view: WorldView): CellTask | null => {
-  if (!activeTaskManager || !activeDirector) return null;
-  let remaining = collectFarmTasks(view, activeDirector.world);
+  if (!getActiveTaskManager() || !getActiveDirector()) return null;
+  let remaining = collectFarmTasks(view, getActiveDirector()!.world);
   while (remaining.length > 0) {
-    const pick = activeTaskManager.pickTaskByPriority(
+    const pick = getActiveTaskManager()!.pickTaskByPriority(
       citizen,
       remaining,
       FARM_TASK_TYPES,
@@ -354,9 +399,9 @@ const collectExploreTasks = (view: WorldView, world?: WorldEngine | null): CellT
 };
 
 const selectExploreTask = (citizen: Citizen, view: WorldView): CellTask | null => {
-  if (!activeTaskManager || !activeDirector) return null;
-  const tasks = collectExploreTasks(view, activeDirector.world);
-  return activeTaskManager.pickTaskByPriority(
+  if (!getActiveTaskManager() || !getActiveDirector()) return null;
+  const tasks = collectExploreTasks(view, getActiveDirector()!.world);
+  return getActiveTaskManager()!.pickTaskByPriority(
     citizen,
     tasks,
     ["explore"],
@@ -372,17 +417,17 @@ const farmerAI: CitizenAI = (citizen, view) => {
   const hasExcessFood = citizen.carrying.food >= FOOD_STORE_THRESHOLD;
   const shouldReturnToStorage = (isReturningToStorage && citizen.carrying.food > 0) || hasExcessFood;
 
-  if (shouldReturnToStorage && activeGatherEngine) {
-    activeTaskManager?.releaseForCitizen(citizen.id);
+  if (shouldReturnToStorage && getActiveGatherEngine()) {
+    getActiveTaskManager()?.releaseForCitizen(citizen.id);
     if (hasExcessFood) {
       citizen.pendingFoodReserve = true;
     }
-    return activeGatherEngine.runGathererBrain(citizen, view, "food");
+    return getActiveGatherEngine()!.runGathererBrain(citizen, view, "food");
   }
 
   const farmTask = selectFarmTask(citizen, view);
-  if (farmTask && activeTaskManager) {
-    const claimed = activeTaskManager.claim(farmTask, citizen.id);
+  if (farmTask && getActiveTaskManager()) {
+    const claimed = getActiveTaskManager()!.claim(farmTask, citizen.id);
     if (claimed) {
       citizen.target = { x: farmTask.x, y: farmTask.y };
       citizen.currentGoal = getFarmGoalLabel(farmTask.type);
@@ -391,8 +436,8 @@ const farmerAI: CitizenAI = (citizen, view) => {
       }
       return { type: "move", x: farmTask.x, y: farmTask.y };
     }
-  } else if (activeTaskManager) {
-    activeTaskManager.releaseForCitizen(citizen.id);
+  } else if (getActiveTaskManager()) {
+    getActiveTaskManager()!.releaseForCitizen(citizen.id);
     if (citizen.currentGoal && FARM_TASK_PRIORITY.includes(citizen.currentGoal as FarmTask)) {
       delete citizen.currentGoal;
     }
@@ -400,22 +445,22 @@ const farmerAI: CitizenAI = (citizen, view) => {
 
   // If in natural gathering phases, continue
   if (isGatheringPhase) {
-    activeTaskManager?.releaseForCitizen(citizen.id);
-    if (activeGatherEngine) {
-      return activeGatherEngine.runGathererBrain(citizen, view, "food");
+    getActiveTaskManager()?.releaseForCitizen(citizen.id);
+    if (getActiveGatherEngine()) {
+      return getActiveGatherEngine()!.runGathererBrain(citizen, view, "food");
     }
     return wanderCitizen(citizen);
   }
 
   // Gather natural food using gatherer brain as a last resort
-  if (activeGatherEngine) {
-    activeTaskManager?.releaseForCitizen(citizen.id);
-    return activeGatherEngine.runGathererBrain(citizen, view, "food");
+  if (getActiveGatherEngine()) {
+    getActiveTaskManager()?.releaseForCitizen(citizen.id);
+    return getActiveGatherEngine()!.runGathererBrain(citizen, view, "food");
   }
 
   // Fallback: Global search for farm tasks
-  if (activeDirector?.world) {
-    const globalFarm = activeDirector.world.findClosestMarkedCell({ x: citizen.x, y: citizen.y }, "farm");
+  if (getActiveDirector()?.world) {
+    const globalFarm = getActiveDirector()!.world.findClosestMarkedCell({ x: citizen.x, y: citizen.y }, "farm");
     if (globalFarm) {
       return { type: "move", x: globalFarm.x, y: globalFarm.y };
     }
@@ -425,8 +470,8 @@ const farmerAI: CitizenAI = (citizen, view) => {
 };
 
 const workerAI: CitizenAI = (citizen, view) => {
-  const directive = activeDirector?.getConstructionDirectiveFor(citizen) ?? null;
-  const gatherEngine = activeGatherEngine;
+  const directive = getActiveDirector()?.getConstructionDirectiveFor(citizen) ?? null;
+  const gatherEngine = getActiveGatherEngine();
 
   if (directive) {
     const stoneDeficit = Math.max(directive.site.stoneRequired - directive.site.stoneDelivered, 0);
@@ -434,7 +479,7 @@ const workerAI: CitizenAI = (citizen, view) => {
     const needsStone = stoneDeficit > 0;
     const needsWood = woodDeficit > 0;
     const materialsComplete = !needsStone && !needsWood;
-    const storagePos = view.villageCenter ?? activeDirector?.world?.villageCenter;
+    const storagePos = view.villageCenter ?? getActiveDirector()?.world?.villageCenter;
 
     // If materials are complete, work on construction
     if (materialsComplete) {
@@ -454,8 +499,8 @@ const workerAI: CitizenAI = (citizen, view) => {
       const atStorage = citizen.x === storagePos.x && citizen.y === storagePos.y;
 
       // If at the warehouse, collect materials
-      if (atStorage && activeDirector?.world) {
-        const world = activeDirector.world;
+      if (atStorage && getActiveDirector()?.world) {
+        const world = getActiveDirector()!.world;
         if (needsStone && !hasStone && world.stockpile.stone > 0) {
           const taken = world.consume("stone", Math.min(3, stoneDeficit));
           citizen.carrying.stone += taken;
@@ -482,7 +527,7 @@ const workerAI: CitizenAI = (citizen, view) => {
       }
 
       // If not carrying materials and not at the warehouse, check if there are any in stock
-      const world = activeDirector?.world;
+      const world = getActiveDirector()?.world;
       const stockpileStone = world?.stockpile.stone ?? 0;
       const stockpileWood = world?.stockpile.wood ?? 0;
       const canPickup = (needsStone && stockpileStone > 0) || (needsWood && stockpileWood > 0);
@@ -506,7 +551,7 @@ const workerAI: CitizenAI = (citizen, view) => {
 
     if (needWood && needStone) {
       // If both are needed, prioritize the one with less relative stock
-      const world = activeDirector?.world;
+      const world = getActiveDirector()?.world;
       if (world) {
         const woodRatio = world.stockpile.wood / world.stockpile.woodCapacity;
         const stoneRatio = world.stockpile.stone / world.stockpile.stoneCapacity;
@@ -526,8 +571,8 @@ const workerAI: CitizenAI = (citizen, view) => {
     }
   }
   // Fallback: Global search for construction or resources
-  if (activeDirector?.world) {
-    const world = activeDirector.world;
+  if (getActiveDirector()?.world) {
+    const world = getActiveDirector()!.world;
     // Check for any active construction site globally
     const sites = world.getActiveConstructionSites();
     if (sites.length > 0) {
@@ -578,8 +623,8 @@ const settlerAI: CitizenAI = (citizen, view) => {
 
 const scoutAI: CitizenAI = (citizen, view) => {
   const exploreTask = selectExploreTask(citizen, view);
-  if (exploreTask && activeTaskManager) {
-    const claimed = activeTaskManager.claim(exploreTask, citizen.id);
+  if (exploreTask && getActiveTaskManager()) {
+    const claimed = getActiveTaskManager()!.claim(exploreTask, citizen.id);
     if (claimed) {
       citizen.currentGoal = "explore";
       citizen.target = { x: exploreTask.x, y: exploreTask.y };
@@ -590,15 +635,15 @@ const scoutAI: CitizenAI = (citizen, view) => {
           cell.visibility !== "hidden",
       );
       if (isRevealed || (citizen.x === exploreTask.x && citizen.y === exploreTask.y)) {
-        activeTaskManager.releaseAt(exploreTask.x, exploreTask.y);
-        activeDirector?.world?.setPriorityAt(exploreTask.x, exploreTask.y, "none");
+        getActiveTaskManager()!.releaseAt(exploreTask.x, exploreTask.y);
+        getActiveDirector()?.world?.setPriorityAt(exploreTask.x, exploreTask.y, "none");
         delete citizen.target;
         return { type: "idle" };
       }
       return { type: "move", x: exploreTask.x, y: exploreTask.y };
     }
   } else {
-    activeTaskManager?.releaseForCitizen(citizen.id);
+    getActiveTaskManager()?.releaseForCitizen(citizen.id);
   }
   citizen.currentGoal = "explore";
   return { type: "move", x: citizen.x + Math.round(Math.random() * 6 - 3), y: citizen.y + Math.round(Math.random() * 6 - 3) };
@@ -612,7 +657,7 @@ const passiveAI: CitizenAI = (citizen, view) => {
 };
 
 const worshipAI: CitizenAI = (citizen, view) => {
-  const world = activeDirector?.world;
+  const world = getActiveDirector()?.world;
   let target: Vec2 | null = null;
 
   // Prefer a known temple position from the world map (covers cases outside the local view radius)
