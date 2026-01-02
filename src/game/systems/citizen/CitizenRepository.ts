@@ -1,5 +1,6 @@
 import type { Citizen, Role } from "../../core/types";
 import type { WorldEngine } from "../../core/world/WorldEngine";
+import { SKILL_CONFIG } from "../../core/skillConstants";
 
 /**
  * Encapsulates storage, lookup and lifecycle helpers for citizens so the main
@@ -10,9 +11,12 @@ export class CitizenRepository {
   private citizenById = new Map<number, Citizen>();
   private nextCitizenId = 1;
 
-  constructor(private world: WorldEngine) {}
+  constructor(private world: WorldEngine) { }
 
   createCitizen(role: Role, x: number, y: number, tribeId: number): Citizen {
+    const baseSkills = SKILL_CONFIG.INITIAL_BY_ROLE[role];
+    const variance = () => Math.floor(Math.random() * SKILL_CONFIG.INITIAL_VARIANCE * 2) - SKILL_CONFIG.INITIAL_VARIANCE;
+
     return {
       id: this.nextCitizenId++,
       x,
@@ -27,6 +31,13 @@ export class CitizenRepository {
       carrying: { food: 0, stone: 0, wood: 0 },
       state: "alive",
       actionHistory: [],
+      skills: {
+        farming: Math.max(0, baseSkills.farming + variance()),
+        mining: Math.max(0, baseSkills.mining + variance()),
+        combat: Math.max(0, baseSkills.combat + variance()),
+        construction: Math.max(0, baseSkills.construction + variance()),
+        foraging: Math.max(0, baseSkills.foraging + variance()),
+      },
     };
   }
 
