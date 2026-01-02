@@ -2,6 +2,8 @@ import { clamp } from "../../core/utils";
 import type { Citizen, CitizenAction, GathererBrain, Vec2, WorldCell, WorldView } from "../../core/types";
 import type { WorldEngine } from "../../core/world/WorldEngine";
 import { CellTaskManager } from "../task/CellTaskManager";
+import { getSkillBonus } from "../../core/skillConstants";
+import { getSkillProgressionSystem } from "../SkillProgressionSystem";
 
 export type GatherableResourceType = "food" | "stone" | "wood";
 
@@ -335,7 +337,15 @@ export class ResourceCollectionEngine {
     if (!cell.resource) return;
     const amount = clamp(cell.resource.amount, 0, 3);
     if (amount <= 0) return;
-    const efficiency = citizen.role === "farmer" ? 1.1 : 1;
+
+    // Apply foraging skill bonus
+    const foragingBonus = getSkillBonus(citizen.skills.foraging, "foraging");
+    const roleBonus = citizen.role === "farmer" ? 0.1 : 0;
+    const efficiency = 1 + roleBonus + foragingBonus;
+
+    // Gain foraging XP
+    getSkillProgressionSystem().gainGatheringXP(citizen, "food");
+
     const gathered = Math.min(1, cell.resource.amount);
     cell.resource.amount = clamp(cell.resource.amount - gathered, 0, 10);
     const isFarmPlot = cell.priority === "farm" && cell.cropStage > 0;
@@ -360,7 +370,15 @@ export class ResourceCollectionEngine {
     if (!cell.resource) return;
     const gathered = Math.min(1, cell.resource.amount);
     if (gathered <= 0) return;
-    citizen.carrying.stone += gathered;
+
+    // Apply mining skill bonus
+    const miningBonus = getSkillBonus(citizen.skills.mining, "mining");
+    const bonusGathered = Math.floor(gathered * (1 + miningBonus));
+
+    // Gain mining XP
+    getSkillProgressionSystem().gainGatheringXP(citizen, "stone");
+
+    citizen.carrying.stone += Math.max(gathered, bonusGathered);
     cell.resource.amount = clamp(cell.resource.amount - gathered, 0, 12);
     if (cell.resource.amount <= 0) {
       cell.resource = undefined;
@@ -371,7 +389,15 @@ export class ResourceCollectionEngine {
     if (!cell.resource) return;
     const gathered = Math.min(1, cell.resource.amount);
     if (gathered <= 0) return;
-    citizen.carrying.wood += gathered;
+
+    // Apply foraging skill bonus
+    const foragingBonus = getSkillBonus(citizen.skills.foraging, "foraging");
+    const bonusGathered = Math.floor(gathered * (1 + foragingBonus));
+
+    // Gain foraging XP
+    getSkillProgressionSystem().gainGatheringXP(citizen, "wood");
+
+    citizen.carrying.wood += Math.max(gathered, bonusGathered);
     cell.resource.amount = clamp(cell.resource.amount - gathered, 0, 20);
     if (cell.resource.amount <= 0 && !cell.resource.renewable) {
       cell.resource = undefined;
