@@ -154,6 +154,11 @@ export class WorldEngine {
     return this.pathFinder.findPath(start, goal, options);
   }
 
+  checkReachability(start: Vec2, target: Vec2): boolean {
+    const path = this.pathFinder.findPath(start, target);
+    return path !== null && path.length > 0;
+  }
+
   removeCitizen(citizenId: number, position: Vec2) {
     const cell = this.getCell(position.x, position.y);
     if (cell) {
