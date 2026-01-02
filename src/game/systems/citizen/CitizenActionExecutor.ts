@@ -7,6 +7,8 @@ import { Navigator } from "./Navigator";
 import type { BehaviorDecision } from "./CitizenBehaviorDirector";
 import { FOOD_SELF_RESERVE, FOOD_STORE_THRESHOLD, ResourceCollectionEngine } from "../resource/ResourceCollectionEngine";
 import { CellTaskManager } from "../task/CellTaskManager";
+import { getSkillBonus } from "../../core/skillConstants";
+import { getSkillProgressionSystem } from "../SkillProgressionSystem";
 
 type BusyAction = Extract<CitizenAction["type"], "gather" | "construct" | "tendCrops" | "attack" | "mate">;
 const BUSY_ACTIONS: readonly BusyAction[] = ["gather", "construct", "tendCrops", "attack", "mate"];
@@ -113,7 +115,15 @@ export class CitizenActionExecutor {
       this.navigator.moveCitizenTowards(attacker, target.x, target.y);
       return;
     }
-    const baseDamage = attacker.role === "warrior" ? 15 : 5;
+
+    // Apply combat skill bonus
+    const roleDamage = attacker.role === "warrior" ? 15 : 5;
+    const combatBonus = getSkillBonus(attacker.skills.combat, "combat");
+    const baseDamage = Math.floor(roleDamage * (1 + combatBonus));
+
+    // Gain combat XP
+    getSkillProgressionSystem().gainCombatXP(attacker);
+
     const reduction = target.damageResistance && target.damageResistance > 0 ? Math.max(0, Math.min(target.damageResistance, 0.9)) : 0;
     const damage = Math.max(0, Math.floor(baseDamage * (1 - reduction)));
     target.health = clamp(target.health - damage, -50, 100);
@@ -148,6 +158,9 @@ export class CitizenActionExecutor {
     if (citizen.x !== x || citizen.y !== y) return;
     citizen.fatigue = clamp(citizen.fatigue + 1.2 * tickHours, 0, 100);
 
+    // Gain farming XP for tending crops
+    getSkillProgressionSystem().gainFarmingXP(citizen);
+
     if (cell.priority !== "farm") {
       cell.cropProgress = clamp(cell.cropProgress + 0.05 * tickHours, 0, 1);
       return;
@@ -177,7 +190,10 @@ export class CitizenActionExecutor {
     }
 
     if (task === "harvest") {
-      const harvestYield = Math.max(1, Math.round(1 + cell.fertility));
+      // Apply farming skill bonus to harvest yield
+      const farmingBonus = getSkillBonus(citizen.skills.farming, "farming");
+      const baseYield = Math.max(1, Math.round(1 + cell.fertility));
+      const harvestYield = Math.floor(baseYield * (1 + farmingBonus));
       citizen.carrying.food += harvestYield;
       cell.cropStage = 0;
       cell.cropProgress = 0;
@@ -200,7 +216,13 @@ export class CitizenActionExecutor {
   }
 
   private constructStructure(citizen: Citizen, siteId: number, tickHours: number) {
-    const labor = 3 * tickHours;
+    // Apply construction skill bonus to labor
+    const constructionBonus = getSkillBonus(citizen.skills.construction, "construction");
+    const labor = 3 * tickHours * (1 + constructionBonus);
+
+    // Gain construction XP
+    getSkillProgressionSystem().gainConstructionXP(citizen);
+
     const availableStone = citizen.carrying.stone;
     const stoneSpend = availableStone > 0 ? Math.min(1, availableStone) : 0;
     const availableWood = citizen.carrying.wood;

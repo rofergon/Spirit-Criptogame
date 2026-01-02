@@ -116,7 +116,7 @@ export class CitizenSystem {
     this.applyPendingRoleChanges();
 
     this.repository.pruneDeadCitizens();
-    }
+  }
 
   spawnMigrants(attitude: "neutral" | "friendly" | "hostile") {
     const entry = this.findValidSpawnPoint("left");
@@ -225,7 +225,10 @@ export class CitizenSystem {
       }
 
       if (this.world.isWalkable(x, y)) {
-        return { x, y };
+        // Verify that the spawn point is reachable from the village center
+        if (this.world.checkReachability({ x, y }, this.world.villageCenter)) {
+          return { x, y };
+        }
       }
     }
     return null;
@@ -560,7 +563,7 @@ export class CitizenSystem {
     });
   }
 
-    private tryEatFromStockpile(citizen: Citizen) {
+  private tryEatFromStockpile(citizen: Citizen) {
     let ateFromCarry = false;
     if (citizen.carrying.food > 0) {
       const ration = Math.min(2, citizen.carrying.food);
@@ -569,14 +572,14 @@ export class CitizenSystem {
       citizen.morale = clamp(citizen.morale + 3, 0, 100);
       ateFromCarry = ration > 0;
       if (citizen.hunger <= 70) {
-      return;
+        return;
       }
     }
 
     if (this.world.stockpile.food <= 0) {
       if (!ateFromCarry) {
-      citizen.morale = clamp(citizen.morale - 3, 0, 100);
-      this.inflictDamage(citizen, 1, "starvation (no reserves)");
+        citizen.morale = clamp(citizen.morale - 3, 0, 100);
+        this.inflictDamage(citizen, 1, "starvation (no reserves)");
       }
       return;
     }
