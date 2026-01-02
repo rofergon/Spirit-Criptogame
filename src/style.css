@@ -2254,3 +2254,103 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Skill bars section - improved UX */
+.panel-skills {
+  margin-top: 0.5rem;
+  padding: 0.6rem;
+  background: rgba(20, 15, 10, 0.5);
+  border-radius: 10px;
+  border: 1px solid rgba(93, 64, 55, 0.3);
+}
+
+.skills-title {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent-wheat);
+  margin-bottom: 0.5rem;
+  opacity: 0.9;
+}
+
+.skill-row {
+  display: grid;
+  grid-template-columns: 1.4rem 3.5rem 1fr 2rem 2.5rem;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.4rem;
+  padding: 0.2rem 0;
+}
+
+.skill-row:last-child {
+  margin-bottom: 0;
+}
+
+.skill-icon {
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.skill-label {
+  font-size: 0.72rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.skill-bar-bg {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.skill-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+/* Color coding by skill level */
+.skill-bar-fill.level-novice {
+  background: linear-gradient(90deg, #e53935, #ff5252);
+}
+
+.skill-bar-fill.level-apprentice {
+  background: linear-gradient(90deg, #fb8c00, #fdd835);
+}
+
+.skill-bar-fill.level-expert {
+  background: linear-gradient(90deg, #43a047, #66bb6a);
+}
+
+.skill-bar-fill.level-master {
+  background: linear-gradient(90deg, #1e88e5, #6ee7ff);
+}
+
+.skill-value {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.skill-bonus {
+  font-size: 0.68rem;
+  color: #43a047;
+  font-weight: 600;
+  text-align: right;
+}
+
+.skill-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+}
+
+.skill-row:hover .skill-label {
+  color: var(--color-text-primary);
+}
