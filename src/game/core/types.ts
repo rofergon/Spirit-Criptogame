@@ -82,6 +82,16 @@ export type CitizenActionLogEntry = {
   description: string;
 };
 
+export interface CitizenSkills {
+  farming: number;      // 0-100: Velocidad de cultivo y rendimiento
+  mining: number;       // 0-100: Eficiencia de extracción de piedra
+  combat: number;       // 0-100: Daño infligido y resistencia
+  construction: number; // 0-100: Velocidad de construcción
+  foraging: number;     // 0-100: Cantidad recolectada (food/wood)
+}
+
+export type SkillType = keyof CitizenSkills;
+
 export interface Citizen {
   id: number;
   x: number;
@@ -121,6 +131,7 @@ export interface Citizen {
   pendingFoodReserve?: boolean;
   damageResistance?: number;
   hexBlessed?: boolean;
+  skills: CitizenSkills;
 }
 
 export interface WorldView {
